@@ -1,0 +1,1638 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BrainOS — Personal Operating System</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Chart.js as UMD — exposed on window.Chart, accessible from module via window.Chart -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<!-- Firebase v12 ES Module — init and expose to window -->
+<script type="module">
+  import { initializeApp }    from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+  import { getAnalytics }     from "https://www.gstatic.com/firebasejs/12.11.0/firebase-analytics.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged }
+                               from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+  import { getFirestore, collection, doc,
+           getDoc, getDocs, setDoc, deleteDoc,
+           onSnapshot, writeBatch }
+                               from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyBXDKuxIJz3Hu--pjnyD-aBzSPUTscA4vk",
+    authDomain:        "cerebro-f2558.firebaseapp.com",
+    projectId:         "cerebro-f2558",
+    storageBucket:     "cerebro-f2558.firebasestorage.app",
+    messagingSenderId: "30891566271",
+    appId:             "1:30891566271:web:48ff6caf2f64b96215120a",
+    measurementId:     "G-YCYBSS0LEV"
+  };
+
+  const fbApp  = initializeApp(firebaseConfig);
+  getAnalytics(fbApp);
+  const fbAuth = getAuth(fbApp);
+  const fbDb   = getFirestore(fbApp);
+
+  // ── Expose to window so the main (non-module) script can use them ──
+  window._fbAuth = fbAuth;
+  window._fbDb   = fbDb;
+
+  // ── Expose Firestore helpers to window ──
+  window._fb = {
+    signInAnon:    () => signInAnonymously(fbAuth),
+    onAuthChange:  (cb) => onAuthStateChanged(fbAuth, cb),
+    userDoc:       (uid) => doc(fbDb, 'users', uid),
+    checkinDoc:    (uid, key) => doc(fbDb, 'users', uid, 'checkins', key),
+    settingsDoc:   (uid) => doc(fbDb, 'users', uid, 'config', 'settings'),
+    checkinsCol:   (uid) => collection(fbDb, 'users', uid, 'checkins'),
+    getDoc, getDocs, setDoc, deleteDoc, onSnapshot, writeBatch,
+  };
+
+  // Signal main script that Firebase is ready
+  window._fbReady = true;
+  document.dispatchEvent(new Event('fb-ready'));
+</script>
+<style>
+:root{
+  --blue:#4F8CFF;--bluel:#EAF4FF;--mint:#63E6BE;--mintl:#EAFBF5;
+  --bg:#F5F7FB;--w:#FFF;--t1:#24324A;--t2:#60708A;--t3:#A0AEBF;
+  --warn:#FFB86B;--warnb:rgba(255,184,107,.13);
+  --danger:#FF8A8A;--dangerb:rgba(255,138,138,.1);
+  --ok:#2DD4A8;--okb:#EAFBF5;
+  --bd:rgba(79,140,255,.1);--bd2:rgba(79,140,255,.18);
+  --sh:0 2px 20px rgba(79,140,255,.09);--sh2:0 6px 36px rgba(79,140,255,.14);
+  --r:14px;--r2:20px;--r3:28px;--f:'DM Sans',sans-serif;--m:'DM Mono',monospace
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px}body{font-family:var(--f);background:var(--bg);color:var(--t1);min-height:100vh;overflow-x:hidden}
+.bg{position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(ellipse 700px 500px at 5% 15%,rgba(79,140,255,.06) 0%,transparent 70%),radial-gradient(ellipse 500px 400px at 90% 5%,rgba(99,230,190,.06) 0%,transparent 70%),#F5F7FB}
+.shell{position:relative;z-index:1;display:flex;min-height:100vh}
+/* SIDEBAR */
+.sb{width:238px;flex-shrink:0;background:var(--w);border-right:1px solid var(--bd);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+.sb-logo{padding:18px 16px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px}
+.sb-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--blue),var(--mint));display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.sb-name{font-size:16px;font-weight:600;letter-spacing:-.3px}.sb-sub{font-size:10px;color:var(--t3);letter-spacing:.4px;text-transform:uppercase}
+.sb-sec{padding:10px 16px 3px;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--t3)}
+.sb-ci{display:flex;align-items:center;gap:9px;padding:10px 13px;border-radius:var(--r2);margin:3px 8px;cursor:pointer;border:none;width:calc(100% - 16px);text-align:left;font-family:var(--f);transition:all .2s;position:relative}
+.sb-ci-m{background:linear-gradient(135deg,rgba(79,140,255,.1),rgba(99,230,190,.08));color:var(--blue);border:1.5px solid rgba(79,140,255,.2)}
+.sb-ci-m:hover,.sb-ci-m.on{background:linear-gradient(135deg,rgba(79,140,255,.18),rgba(99,230,190,.14));transform:translateY(-1px);box-shadow:var(--sh)}
+.sb-ci-d{background:linear-gradient(135deg,rgba(255,184,107,.1),rgba(255,154,60,.06));color:#9A5E10;border:1.5px solid rgba(255,184,107,.3)}
+.sb-ci-d:hover,.sb-ci-d.on{background:linear-gradient(135deg,rgba(255,184,107,.18),rgba(255,154,60,.12));transform:translateY(-1px);box-shadow:var(--sh)}
+.sb-ci-e{background:linear-gradient(135deg,rgba(99,230,190,.1),rgba(45,212,168,.06));color:#16806A;border:1.5px solid rgba(99,230,190,.3)}
+.sb-ci-e:hover,.sb-ci-e.on{background:linear-gradient(135deg,rgba(99,230,190,.18),rgba(45,212,168,.12));transform:translateY(-1px);box-shadow:var(--sh)}
+.sb-ci-ic{font-size:15px;width:17px;text-align:center;flex-shrink:0}
+.sb-ci-info{display:flex;flex-direction:column;gap:1px;flex:1}
+.sb-ci-label{font-size:13px;font-weight:600}.sb-ci-time{font-size:10px;opacity:.7}
+.sb-ci-badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;flex-shrink:0}
+.b-done{background:var(--mintl);color:#16806A}.b-pend{background:var(--warnb);color:#9A5E10}
+.sb-btn{display:flex;align-items:center;gap:8px;padding:7px 11px;border-radius:var(--r);margin:1px 7px;cursor:pointer;border:none;background:none;width:calc(100% - 14px);text-align:left;font-family:var(--f);font-size:12.5px;font-weight:400;color:var(--t2);transition:all .2s;position:relative}
+.sb-btn:hover{background:var(--bluel);color:var(--t1)}.sb-btn.on{background:var(--bluel);color:var(--blue);font-weight:500}
+.sb-btn.on::before{content:'';position:absolute;left:-7px;top:50%;transform:translateY(-50%);width:3px;height:16px;background:var(--blue);border-radius:0 2px 2px 0}
+.sb-ic{font-size:13px;width:16px;text-align:center}
+.sb-guide{margin:9px 9px 0;padding:11px 13px;border-radius:var(--r2);background:linear-gradient(135deg,rgba(79,140,255,.05),rgba(99,230,190,.04));border:1px solid var(--bd2)}
+.sg-title{font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}
+.sg-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:10.5px;color:var(--t2)}
+.sg-dot{width:6px;height:6px;border-radius:50%;background:var(--mint);flex-shrink:0}
+/* TOPBAR */
+.tb{background:rgba(255,255,255,.92);backdrop-filter:blur(24px);border-bottom:1px solid var(--bd);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.tb-title{font-size:16px;font-weight:600;color:var(--t1)}.tb-sub{font-size:11.5px;color:var(--t2)}
+.tb-r{display:flex;align-items:center;gap:8px}
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:9px;font-size:12.5px;font-weight:500;cursor:pointer;border:none;transition:all .2s;font-family:var(--f)}
+.bp{background:var(--blue);color:#fff}.bp:hover{background:#3a7ae0;transform:translateY(-1px);box-shadow:0 4px 14px rgba(79,140,255,.28)}
+.bg2{background:transparent;color:var(--t2);border:1px solid var(--bd2)}.bg2:hover{background:var(--bluel);color:var(--blue)}
+.bs{padding:5px 10px;font-size:12px}
+/* MAIN */
+.main{flex:1;padding:24px;overflow-y:auto;min-width:0}
+.page{display:none}.page.on{display:block;animation:fu .3s ease}
+@keyframes fu{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.ph{margin-bottom:20px}.ph-title{font-size:21px;font-weight:600;letter-spacing:-.4px;margin-bottom:3px}.ph-sub{font-size:13px;color:var(--t2);line-height:1.6}
+/* CARDS */
+.card{background:var(--w);border:1px solid var(--bd);border-radius:var(--r2);padding:20px;transition:box-shadow .2s}.card:hover{box-shadow:var(--sh)}
+.ct{font-size:14px;font-weight:600;margin-bottom:3px}.cs{font-size:11.5px;color:var(--t2);margin-bottom:14px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+/* STAT CARDS */
+.sc{background:var(--w);border:1px solid var(--bd);border-radius:var(--r2);padding:16px 18px;position:relative;overflow:hidden;transition:all .2s}.sc:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
+.sc-a{position:absolute;top:0;left:0;right:0;height:3px;border-radius:var(--r2) var(--r2) 0 0}
+.sc-l{font-size:10.5px;color:var(--t2);text-transform:uppercase;letter-spacing:.7px;font-weight:500;margin-top:1px}
+.sc-v{font-size:24px;font-weight:700;line-height:1.1;margin:3px 0 2px}.sc-d{font-size:12px;font-weight:500}
+.up{color:var(--ok)}.dn{color:var(--danger)}.fl{color:var(--t3)}
+/* DIM BARS */
+.dr{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(79,140,255,.06)}.dr:last-child{border-bottom:none}
+.dn2{font-size:12px;font-weight:500;min-width:150px}.db{flex:1;background:var(--bluel);border-radius:3px;height:5px;overflow:hidden}
+.df{height:100%;border-radius:3px;transition:width 1.2s cubic-bezier(.4,0,.2,1)}.dsv{font-size:13px;font-weight:700;min-width:26px;text-align:right}
+/* ALERTS */
+.al{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--r);border:1px solid;margin-bottom:9px}.al:last-child{margin-bottom:0}
+.al-ok{background:var(--okb);border-color:rgba(45,212,168,.25)}.al-warn{background:var(--warnb);border-color:rgba(255,184,107,.3)}
+.al-info{background:var(--bluel);border-color:var(--bd2)}.al-danger{background:var(--dangerb);border-color:rgba(255,138,138,.3)}
+.al-icon{font-size:16px;flex-shrink:0}.al-t{font-size:12.5px;font-weight:600;margin-bottom:2px}.al-b{font-size:11.5px;color:var(--t2);line-height:1.5}
+/* CHIP */
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500}
+.c-bl{background:var(--bluel);color:var(--blue)}.c-mi{background:var(--mintl);color:#16806A}.c-wa{background:var(--warnb);color:#9A5E10}
+.cw{position:relative;width:100%}
+/* WIZARD */
+.wz{max-width:580px;margin:0 auto}
+.wz-typebar{display:flex;gap:5px;margin-bottom:20px;padding:4px;background:var(--bluel);border-radius:var(--r2)}
+.wz-tp{flex:1;padding:7px 4px;text-align:center;border-radius:var(--r);font-size:11px;font-weight:500;color:var(--t2);transition:all .3s;cursor:default}
+.wz-tp.tp-on{background:var(--w);color:var(--t1);box-shadow:0 1px 6px rgba(79,140,255,.15)}
+.wz-tp .tpic{font-size:13px;display:block;margin-bottom:1px}.wz-tp .tplb{font-size:9.5px}
+.wz-prog{display:flex;align-items:flex-start;margin-bottom:22px;position:relative}
+.wz-prog::before{content:'';position:absolute;top:11px;left:0;right:0;height:2px;background:var(--bd);z-index:0}
+.wp-s{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;position:relative;z-index:1}
+.wp-d{width:22px;height:22px;border-radius:50%;border:2px solid var(--bd2);background:var(--w);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--t2);transition:all .3s}
+.wp-d.done{background:var(--mint);border-color:var(--mint);color:#fff}.wp-d.act{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 0 0 3px rgba(79,140,255,.15)}
+.wp-l{font-size:9px;color:var(--t2);text-align:center;max-width:48px;line-height:1.2}.wp-l.act{color:var(--blue);font-weight:600}
+.wp-line{flex:1;height:2px;margin-bottom:19px;z-index:0}
+.step-cat{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;margin-bottom:8px}
+.cat-sleep{background:rgba(168,85,247,.1);color:#7C3AED}.cat-mind{background:var(--bluel);color:var(--blue)}
+.cat-body{background:rgba(255,184,107,.12);color:#9A5E10}.cat-midday{background:rgba(255,184,107,.15);color:#9A5E10}
+.cat-emotion{background:rgba(255,138,138,.1);color:#A83030}.cat-intuition{background:rgba(168,85,247,.1);color:#7C3AED}
+.cat-summary{background:var(--mintl);color:#16806A}
+.wz-card{background:var(--w);border:1px solid var(--bd);border-radius:var(--r3);padding:26px;box-shadow:var(--sh)}
+.wz-icon{font-size:26px;margin-bottom:7px}.wz-title{font-size:17px;font-weight:600;letter-spacing:-.3px;margin-bottom:4px}
+.wz-sub{font-size:12.5px;color:var(--t2);line-height:1.55}
+.wz-when{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;background:var(--bluel);border-radius:20px;font-size:11px;color:var(--blue);font-weight:500;margin-top:8px}
+.wf{margin-bottom:16px}.wf label{display:block;font-size:12px;font-weight:500;color:var(--t2);margin-bottom:6px}.wf .why{font-size:10.5px;color:var(--t3);margin-top:4px;font-style:italic}
+.sl-row{position:relative;padding-top:20px}.sl-val{position:absolute;right:0;top:0;font-size:14px;font-weight:700;color:var(--blue)}
+input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:2px;background:var(--bluel);outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:var(--blue);cursor:pointer;box-shadow:0 2px 7px rgba(79,140,255,.3);transition:transform .2s}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
+.tgl-g{display:flex;gap:6px;flex-wrap:wrap}
+.tgl{padding:6px 13px;border-radius:20px;font-size:12px;font-weight:500;border:1.5px solid var(--bd2);background:transparent;color:var(--t2);cursor:pointer;transition:all .2s;font-family:var(--f)}
+.tgl:hover{background:var(--bluel);color:var(--t1)}.tgl.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.mood-r{display:flex;gap:5px}
+.mb{flex:1;aspect-ratio:1;border-radius:var(--r);border:2px solid var(--bd);background:var(--w);font-size:17px;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:2px}
+.mb span{font-size:9px;color:var(--t2)}.mb:hover{transform:scale(1.07);border-color:rgba(79,140,255,.3)}.mb.on{border-color:var(--blue);background:var(--bluel)}
+.bsig-g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.bsig{padding:12px 8px;border-radius:var(--r);border:1.5px solid var(--bd);background:var(--w);cursor:pointer;text-align:center;transition:all .2s}
+.bsig:hover{background:var(--bluel)}.bsig.on{border-color:var(--blue);background:var(--bluel)}
+.bsig-ic{font-size:20px;margin-bottom:4px}.bsig-l{font-size:11.5px;font-weight:600}.bsig-d{font-size:10px;color:var(--t2);margin-top:2px}
+textarea.ta{width:100%;padding:10px 13px;border:1.5px solid var(--bd2);border-radius:var(--r);background:var(--w);color:var(--t1);font-family:var(--f);font-size:13px;resize:vertical;min-height:70px;outline:none;transition:border-color .2s}
+textarea.ta:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(79,140,255,.1)}
+.wz-nav{display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--bd)}
+.wz-cnt{font-size:11px;color:var(--t3)}
+/* RING */
+.ring-wrap{position:relative;display:inline-flex;align-items:center;justify-content:center}
+.ring-inner{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+/* HEATMAP */
+.mo-hdr{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px}
+.mo-hd{font-size:9px;text-align:center;color:var(--t3);font-weight:500}
+.mo-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:8px}
+.mo-cell{aspect-ratio:1;border-radius:4px;cursor:pointer;transition:transform .15s;display:flex;align-items:center;justify-content:center}
+.mo-cell:hover{transform:scale(1.2);z-index:2;position:relative}
+.yr-wrap{display:flex;gap:2px;overflow-x:auto;padding-bottom:4px}
+.yr-col{display:flex;flex-direction:column;gap:2px}
+.yr-cell{width:12px;height:12px;border-radius:2px;flex-shrink:0;cursor:pointer}
+.yr-cell:hover{transform:scale(1.3);z-index:2;position:relative}
+/* SETTINGS TOGGLE */
+.sw{position:relative;display:inline-block;width:38px;height:21px}
+.sw input{opacity:0;width:0;height:0}
+.sw-s{position:absolute;inset:0;background:var(--bd2);border-radius:11px;transition:.3s;cursor:pointer}
+.sw-s::before{content:'';position:absolute;height:15px;width:15px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.3s}
+.sw input:checked+.sw-s{background:var(--blue)}.sw input:checked+.sw-s::before{transform:translateX(17px)}
+/* NOTICE */
+.notice{background:linear-gradient(135deg,var(--bluel),var(--mintl));border:1px solid var(--bd2);border-radius:var(--r2);padding:14px 16px;display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.notice-icon{font-size:22px;flex-shrink:0}.notice-text{font-size:12.5px;color:var(--t2);line-height:1.6}
+.notice-text strong{color:var(--t1);font-weight:600}
+.mo-sr{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid rgba(79,140,255,.06)}.mo-sr:last-child{border-bottom:none}
+@media(max-width:920px){
+  .sb{display:none}
+  .g2,.g4{grid-template-columns:1fr}
+  .main{padding:16px 14px 80px}
+  .ph-title{font-size:18px}
+  .wz{max-width:100%}
+}
+
+/* ── BOTTOM NAV (mobile only) ── */
+.bnav{
+  display:none;
+  position:fixed;bottom:0;left:0;right:0;
+  background:rgba(255,255,255,.97);
+  backdrop-filter:blur(20px);
+  border-top:1px solid var(--bd);
+  z-index:200;
+  padding:6px 0 env(safe-area-inset-bottom,6px);
+}
+.bnav-items{display:flex;justify-content:space-around;align-items:center}
+.bnav-btn{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:6px 8px;border:none;background:transparent;
+  cursor:pointer;font-family:var(--f);min-width:52px;
+  position:relative;transition:all .2s;
+  -webkit-tap-highlight-color:rgba(79,140,255,.15);
+  pointer-events:auto;
+}
+.bnav-btn .bi{font-size:20px;line-height:1}
+.bnav-btn .bl{font-size:9px;color:var(--t3);font-weight:500}
+.bnav-btn.on .bl{color:var(--blue)}
+.bnav-btn.on .bi{transform:scale(1.15)}
+.bnav-badge{
+  position:absolute;top:4px;right:8px;
+  background:var(--warn);color:#fff;
+  font-size:8px;font-weight:700;
+  padding:1px 4px;border-radius:8px;
+  display:none;
+}
+.bnav-badge.show{display:block}
+
+/* More drawer */
+.bnav-drawer{
+  display:none;
+  position:fixed;bottom:0;left:0;right:0;
+  background:var(--w);
+  border-radius:20px 20px 0 0;
+  box-shadow:0 -8px 40px rgba(79,140,255,.15);
+  z-index:300;
+  padding:12px 0 env(safe-area-inset-bottom,16px);
+  transform:translateY(100%);
+  transition:transform .3s cubic-bezier(.4,0,.2,1);
+}
+.bnav-drawer.open{transform:translateY(0)}
+.bnav-drawer-handle{
+  width:36px;height:4px;background:var(--bd2);
+  border-radius:2px;margin:0 auto 14px;
+}
+.bnav-drawer-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:2px;
+  padding:0 8px 8px;
+}
+.bnav-drawer-item{
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:14px 8px;border-radius:var(--r);border:none;background:transparent;
+  cursor:pointer;font-family:var(--f);transition:background .2s;
+  position:relative;z-index:301;pointer-events:auto;
+  -webkit-tap-highlight-color:rgba(79,140,255,.15);
+}
+.bnav-drawer-item:hover,.bnav-drawer-item:active{background:var(--bluel)}
+.bnav-drawer-item.on{background:var(--bluel)}
+.bnav-drawer-item .di{font-size:22px;pointer-events:none}
+.bnav-drawer-item .dl{font-size:10px;color:var(--t2);font-weight:500;text-align:center;pointer-events:none}
+.bnav-drawer-item.on .dl{color:var(--blue);font-weight:600}
+.bnav-overlay{
+  display:none;position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(36,50,74,.3);
+  z-index:298;
+  pointer-events:none;
+}
+.bnav-overlay.open{display:block;pointer-events:auto}
+
+@media(max-width:920px){
+  .bnav{display:block}
+  .bnav-drawer{display:block}
+}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(79,140,255,.2);border-radius:3px}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="shell">
+<aside class="sb" id="sidebar">
+  <div class="sb-logo">
+    <div class="sb-icon">🧠</div>
+    <div><div class="sb-name">BrainOS</div><div class="sb-sub">Personal OS</div></div>
+  </div>
+  <div class="sb-sec" style="padding-top:12px">เช็คอินประจำวัน</div>
+  <button class="sb-ci sb-ci-m" id="sb-ci-m" data-page="ci-m"><span class="sb-ci-ic">🌅</span><div class="sb-ci-info"><span class="sb-ci-label">Morning Check-in</span><span class="sb-ci-time">หลังตื่น · ก่อน 09:00</span></div><span class="sb-ci-badge b-pend" id="badge-m">รอทำ</span></button>
+  <button class="sb-ci sb-ci-d" id="sb-ci-d" data-page="ci-d" style="margin-top:4px"><span class="sb-ci-ic">☀️</span><div class="sb-ci-info"><span class="sb-ci-label">Midday Check-in</span><span class="sb-ci-time">ช่วงเที่ยง · 12:00–13:00</span></div><span class="sb-ci-badge b-pend" id="badge-d">รอทำ</span></button>
+  <button class="sb-ci sb-ci-e" id="sb-ci-e" data-page="ci-e" style="margin-top:4px"><span class="sb-ci-ic">🌙</span><div class="sb-ci-info"><span class="sb-ci-label">Evening Check-in</span><span class="sb-ci-time">ตอนเย็น · 20:00–22:00</span></div><span class="sb-ci-badge b-pend" id="badge-e">รอทำ</span></button>
+  <div class="sb-guide">
+    <div class="sg-title">แต่ละ Check-in ครอบคลุม</div>
+    <div class="sg-row"><div class="sg-dot"></div>🌅 เช้า — การนอน · สมาธิ · อารมณ์ · Intuition</div>
+    <div class="sg-row"><div class="sg-dot" style="background:var(--warn)"></div>☀️ เที่ยง — พลังงาน · โฟกัส · อารมณ์</div>
+    <div class="sg-row" style="margin-bottom:0"><div class="sg-dot" style="background:#A855F7"></div>🌙 เย็น — กาย · ความคิด · Intuition · สรุป</div>
+  </div>
+  <div class="sb-sec" style="margin-top:10px">ดูผลวิเคราะห์</div>
+  <button class="sb-btn on" data-page="cmd"><span class="sb-ic">⚡</span>Command Center</button>
+  <button class="sb-btn" data-page="insight"><span class="sb-ic">💡</span>Daily Insight</button>
+  <button class="sb-btn" data-page="weekly"><span class="sb-ic">📅</span>Weekly Review</button>
+  <button class="sb-btn" data-page="monthly"><span class="sb-ic">📆</span>Monthly Review</button>
+  <button class="sb-btn" data-page="yearly"><span class="sb-ic">🗓</span>Yearly Overview</button>
+  <div class="sb-sec" style="margin-top:6px">วิเคราะห์เชิงลึก</div>
+  <button class="sb-btn" data-page="intuition"><span class="sb-ic">🔮</span>Intuition Report</button>
+  <button class="sb-btn" data-page="emotion"><span class="sb-ic">💫</span>Emotion Report</button>
+  <button class="sb-btn" data-page="settings"><span class="sb-ic">⚙️</span>Settings</button>
+  <button class="sb-btn" id="btn-signout" style="color:var(--danger);display:none"><span class="sb-ic">🚪</span>Sign Out</button>
+</aside>
+<div style="flex:1;display:flex;flex-direction:column;min-width:0">
+<header class="tb">
+  <div><div class="tb-title" id="tb-t">Command Center</div><div class="tb-sub" id="tb-s"></div></div>
+  <div class="tb-r" id="tb-r">
+    <span id="sync-badge" style="display:none;font-size:11px;font-weight:500;padding:3px 9px;border-radius:10px;margin-right:4px"></span>
+    <span class="chip c-mi" id="risk-chip">✅ พร้อมตัดสินใจ</span>
+    <button class="btn bp bs" id="btn-checkin">+ เช็คอิน</button>
+  </div>
+</header>
+<main class="main" id="main-content">
+
+<!-- CMD -->
+<div id="p-cmd" class="page on">
+  <div class="ph"><div class="ph-title" id="cmd-greet">สวัสดี 👋</div><div class="ph-sub">ภาพรวมศักยภาพสมองวันนี้</div></div>
+  <div class="g2" style="align-items:start;margin-bottom:16px">
+    <div class="card" style="text-align:center;padding:24px">
+      <div class="ring-wrap" style="width:136px;height:136px;margin:0 auto 14px">
+        <svg width="136" height="136" viewBox="0 0 136 136"><circle cx="68" cy="68" r="56" fill="none" stroke="#EAF4FF" stroke-width="9"/><circle id="ring-arc" cx="68" cy="68" r="56" fill="none" stroke="url(#rg)" stroke-width="9" stroke-linecap="round" stroke-dasharray="352" stroke-dashoffset="352" transform="rotate(-90 68 68)"/><defs><linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#4F8CFF"/><stop offset="100%" stop-color="#63E6BE"/></linearGradient></defs></svg>
+        <div class="ring-inner"><div style="font-size:36px;font-weight:700;color:var(--blue);line-height:1" id="ring-score">—</div><div style="font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:.7px">BrainScore</div></div>
+      </div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:3px" id="score-label">—</div>
+      <div style="font-size:11.5px;color:var(--t2);max-width:190px;margin:0 auto;line-height:1.6" id="score-desc">เช็คอินเพื่อดู BrainScore</div>
+      <div style="display:flex;gap:6px;justify-content:center;margin-top:10px;flex-wrap:wrap">
+        <span class="chip c-mi" id="score-delta" style="display:none"></span>
+        <span class="chip c-bl" id="score-rank" style="display:none"></span>
+      </div>
+    </div>
+    <div class="card"><div class="ct">6 มิติสมรรถนะ</div><div class="cs">น้ำหนักการคำนวณ BrainScore</div><div id="dim-list"></div></div>
+  </div>
+  <div class="g4" style="margin-bottom:16px" id="quick-stats"></div>
+  <div class="g2" style="margin-bottom:16px">
+    <div class="card"><div class="ct">BrainScore — 30 วัน</div><div class="cs" id="cmd-last-ci">ยังไม่มีข้อมูล</div><div class="cw" style="height:175px"><canvas id="c-line30"></canvas></div></div>
+    <div class="card"><div class="ct">Radar — 6 มิติ</div><div class="cs">สมรรถนะวันนี้</div><div class="cw" style="height:175px"><canvas id="c-radar"></canvas></div></div>
+  </div>
+  <div class="card"><div class="ct" style="margin-bottom:11px">🧠 Intelligence Alerts</div><div id="cmd-alerts"></div></div>
+</div>
+
+<!-- MORNING -->
+<div id="p-ci-m" class="page">
+  <div class="ph"><div class="ph-title">🌅 Morning Check-in</div><div class="ph-sub">ครอบคลุม: การนอน · สมาธิ · อารมณ์ · Intuition · ใช้เวลา ~3 นาที</div></div>
+  <div class="wz"><div class="wz-typebar" id="m-tbar"></div><div class="wz-prog" id="m-prog"></div><div id="m-card" class="wz-card"></div></div>
+</div>
+
+<!-- MIDDAY -->
+<div id="p-ci-d" class="page">
+  <div class="ph"><div class="ph-title">☀️ Midday Check-in</div><div class="ph-sub">ครอบคลุม: พลังงาน · โฟกัส · อารมณ์กลางวัน · ใช้เวลา ~2 นาที</div></div>
+  <div class="wz"><div class="wz-typebar" id="d-tbar"></div><div class="wz-prog" id="d-prog"></div><div id="d-card" class="wz-card"></div></div>
+</div>
+
+<!-- EVENING -->
+<div id="p-ci-e" class="page">
+  <div class="ph"><div class="ph-title">🌙 Evening Check-in</div><div class="ph-sub">ครอบคลุม: พลังกาย · Deep Work · อารมณ์ · Intuition · สรุปวัน · ใช้เวลา ~3 นาที</div></div>
+  <div class="wz"><div class="wz-typebar" id="e-tbar"></div><div class="wz-prog" id="e-prog"></div><div id="e-card" class="wz-card"></div></div>
+</div>
+
+<!-- INSIGHT -->
+<div id="p-insight" class="page">
+  <div class="ph"><div class="ph-title">Daily Insight 💡</div><div class="ph-sub">วิเคราะห์อัตโนมัติจาก Check-in วันนี้</div></div>
+  <div class="notice"><div class="notice-icon">🤖</div><div class="notice-text"><strong>ไม่ต้องกรอกเพิ่ม</strong> — BrainOS วิเคราะห์อัตโนมัติจาก Morning + Midday + Evening Check-in</div></div>
+  <div class="g2" style="align-items:start;margin-bottom:16px">
+    <div class="card" style="text-align:center">
+      <div style="font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:12px">BrainScore วันนี้</div>
+      <div class="ring-wrap" style="width:110px;height:110px;margin:0 auto 11px">
+        <svg width="110" height="110" viewBox="0 0 110 110"><circle cx="55" cy="55" r="45" fill="none" stroke="#EAF4FF" stroke-width="8"/><circle id="ins-arc" cx="55" cy="55" r="45" fill="none" stroke="url(#ig)" stroke-width="8" stroke-linecap="round" stroke-dasharray="283" stroke-dashoffset="283" transform="rotate(-90 55 55)"/><defs><linearGradient id="ig" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#4F8CFF"/><stop offset="100%" stop-color="#63E6BE"/></linearGradient></defs></svg>
+        <div class="ring-inner"><div style="font-size:28px;font-weight:700;color:var(--blue);line-height:1" id="ins-score">—</div><div style="font-size:9px;color:var(--t2)">/100</div></div>
+      </div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px" id="ins-label">—</div>
+      <div style="display:flex;gap:5px;justify-content:center;flex-wrap:wrap;margin-top:8px"><span class="chip c-mi" id="ins-delta" style="display:none"></span></div>
+    </div>
+    <div class="card"><div class="ct">🤖 AI Guidance วันนี้</div><div class="cs">วิเคราะห์อัตโนมัติ</div><div id="ins-guidance"></div></div>
+  </div>
+  <div class="card" style="margin-bottom:16px"><div class="ct">📊 Breakdown รายมิติ</div><div class="cs">ทุก dimension พร้อมคำแนะนำ</div><div id="ins-dim"></div></div>
+  <div class="g2"><div class="card"><div class="ct">📈 Intuition — 14 วัน</div><div class="cw" style="height:155px"><canvas id="c-it"></canvas></div></div><div class="card"><div class="ct">💫 Emotion — 14 วัน</div><div class="cw" style="height:155px"><canvas id="c-em"></canvas></div></div></div>
+</div>
+
+<!-- WEEKLY -->
+<div id="p-weekly" class="page">
+  <div class="ph"><div class="ph-title">Weekly Review 📅</div><div class="ph-sub">สรุปรูปแบบพฤติกรรมรายสัปดาห์</div></div>
+  <div class="g4" style="margin-bottom:16px" id="wk-stats"></div>
+  <div class="g2" style="margin-bottom:16px"><div class="card"><div class="ct">BrainScore รายวัน</div><div class="cw" style="height:185px"><canvas id="c-wkbar"></canvas></div></div><div class="card"><div class="ct">Routine Adherence</div><div class="cw" style="height:185px"><canvas id="c-rtline"></canvas></div></div></div>
+  <div class="card"><div class="ct" style="margin-bottom:11px">🔍 Pattern Analysis</div><div id="wk-pat"></div></div>
+</div>
+
+<!-- MONTHLY -->
+<div id="p-monthly" class="page">
+  <div class="ph"><div class="ph-title">Monthly Review 📆</div><div class="ph-sub">ภาพรวมรายเดือน</div></div>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn bg2 bs" id="btn-prevmo">← ก่อนหน้า</button>
+    <div style="font-size:15px;font-weight:600" id="mo-ttl"></div>
+    <button class="btn bg2 bs" id="btn-nextmo">ถัดไป →</button>
+  </div>
+  <div class="g4" style="margin-bottom:16px" id="mo-stats"></div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="ct">📅 Calendar Heatmap</div><div class="cs">สีเข้ม = Score สูง</div>
+    <div class="mo-hdr"><div class="mo-hd">จ</div><div class="mo-hd">อ</div><div class="mo-hd">พ</div><div class="mo-hd">พฤ</div><div class="mo-hd">ศ</div><div class="mo-hd">ส</div><div class="mo-hd">อา</div></div>
+    <div class="mo-grid" id="mo-cal"></div>
+    <div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--t2)">ต่ำ <div style="display:flex;gap:2px"><div style="width:11px;height:11px;background:#EAF4FF;border-radius:2px"></div><div style="width:11px;height:11px;background:#B8D4FF;border-radius:2px"></div><div style="width:11px;height:11px;background:#79C7FF;border-radius:2px"></div><div style="width:11px;height:11px;background:#4F8CFF;border-radius:2px"></div><div style="width:11px;height:11px;background:#2563EB;border-radius:2px"></div></div> สูง</div>
+  </div>
+  <div class="g2" style="margin-bottom:16px"><div class="card"><div class="ct">BrainScore รายวัน</div><div class="cw" style="height:175px"><canvas id="c-moline"></canvas></div></div><div class="card"><div class="ct">เปรียบเทียบ 3 เดือน</div><div class="cw" style="height:175px"><canvas id="c-mocomp"></canvas></div></div></div>
+  <div class="card"><div class="ct">📊 6 มิติ เทียบเดือนก่อน</div><div class="cs" style="margin-bottom:10px">แถบจาง = เดือนก่อน · สีเต็ม = เดือนนี้</div><div id="mo-dim"></div></div>
+</div>
+
+<!-- YEARLY -->
+<div id="p-yearly" class="page">
+  <div class="ph"><div class="ph-title">Yearly Overview 🗓</div><div class="ph-sub">ภาพรวมทั้งปี</div></div>
+  <div class="g4" style="margin-bottom:16px" id="yr-stats"></div>
+  <div class="card" style="margin-bottom:16px"><div class="ct">📊 Heatmap ทั้งปี</div><div class="cs">สีเข้ม = Score สูง</div><div style="overflow-x:auto;padding-bottom:4px"><div id="yr-hmap"></div></div></div>
+  <div class="g2" style="margin-bottom:16px"><div class="card"><div class="ct">🏆 Monthly Ranking</div><div class="cs">เดือนที่ Score สูงสุด</div><div id="mo-rank"></div></div><div class="card"><div class="ct">📈 Trend รายเดือน</div><div class="cw" style="height:200px"><canvas id="c-yrtrend"></canvas></div></div></div>
+  <div class="card"><div class="ct">🔄 พัฒนาการ 6 มิติ</div><div class="cs">เทียบต้นปี vs ปัจจุบัน</div><div id="yr-dim"></div></div>
+</div>
+
+<!-- INTUITION REPORT -->
+<div id="p-intuition" class="page">
+  <div class="ph"><div class="ph-title">Intuition Report 🔮</div><div class="ph-sub">วิเคราะห์จาก Check-in — ดูอย่างเดียว</div></div>
+  <div class="notice"><div class="notice-icon">🔮</div><div class="notice-text"><strong>หน้านี้ดูอย่างเดียว</strong> — Intuition วัดผ่าน Body Signal ใน Morning + Evening Check-in</div></div>
+  <div class="g2" style="align-items:start">
+    <div>
+      <div class="card" style="margin-bottom:14px"><div class="ct">🎯 Intuition Score</div><div style="font-size:48px;font-weight:700;color:var(--blue);line-height:1;margin:8px 0 4px" id="it-score">—</div><div style="font-size:12px;color:var(--t2)">อ้างอิงจาก Check-in ล่าสุด</div><div style="height:4px;background:var(--bluel);border-radius:2px;margin:10px 0 0;overflow:hidden"><div id="it-bar" style="width:0%;height:100%;background:linear-gradient(90deg,var(--blue),var(--mint));border-radius:2px;transition:width .8s"></div></div></div>
+      <div class="card"><div class="ct">🔍 Contamination Check</div><div class="cs">จาก Evening Check-in ล่าสุด</div><div id="contam"></div></div>
+    </div>
+    <div class="card"><div class="ct">📔 ประวัติ Intuition</div><div class="cs">บันทึกจาก Check-in</div><div id="i-hist"></div></div>
+  </div>
+</div>
+
+<!-- EMOTION REPORT -->
+<div id="p-emotion" class="page">
+  <div class="ph"><div class="ph-title">Emotion Report 💫</div><div class="ph-sub">วิเคราะห์จาก Check-in — ดูอย่างเดียว</div></div>
+  <div class="notice"><div class="notice-icon">💫</div><div class="notice-text"><strong>หน้านี้ดูอย่างเดียว</strong> — อารมณ์วัดผ่าน Check-in เช้า + เที่ยง + เย็น</div></div>
+  <div id="em-risk-banner" class="al al-ok" style="margin-bottom:16px"><div class="al-icon">💚</div><div><div class="al-t" style="color:#16806A">Risk Level: LOW</div><div class="al-b">—</div></div></div>
+  <div class="g2" style="margin-bottom:16px;align-items:start">
+    <div class="card"><div class="ct">🌡️ Emotional State</div><div class="cs" style="margin-bottom:12px">จาก Check-in วันนี้</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px" id="em-g"></div><div style="background:var(--bluel);border-radius:var(--r);padding:12px"><div style="font-size:11px;font-weight:600;color:var(--blue);margin-bottom:7px">Decision Safety Check</div><div id="safety"></div></div></div>
+    <div class="card"><div class="ct">📉 Stability — 30 วัน</div><div class="cw" style="height:205px"><canvas id="c-emst"></canvas></div></div>
+  </div>
+  <div class="card"><div class="ct">💊 Regulation Toolkit</div><div class="cs">เทคนิคที่เหมาะกับ Profile ของคุณ</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px" id="reg"></div></div>
+</div>
+
+<!-- SETTINGS -->
+<div id="p-settings" class="page">
+  <div class="ph"><div class="ph-title">Settings ⚙️</div><div class="ph-sub">ปรับแต่ง BrainOS</div></div>
+  <div class="g2" style="align-items:start">
+    <div>
+      <div class="card" style="margin-bottom:14px;background:var(--bluel)">
+        <div class="ct">📐 สูตร BrainScore</div>
+        <div style="font-family:var(--m);font-size:11px;color:var(--t2);line-height:2.1;background:var(--w);padding:12px;border-radius:var(--r);margin-top:10px">
+          BrainScore =<br>&nbsp;Cognitive × 0.20 +<br>&nbsp;Emotional × 0.20 +<br>&nbsp;Intuition × 0.15 +<br>&nbsp;Physical × 0.15 +<br>&nbsp;Discipline × 0.20 +<br>&nbsp;Spiritual × 0.10<br><span style="color:var(--t3)">─────── Total = 1.00 ✓</span>
+        </div>
+        <div style="margin-top:12px;padding:10px;background:var(--mintl);border-radius:var(--r);font-size:12px">
+          <span style="font-weight:600;color:#16806A">BrainScore ปัจจุบัน: </span>
+          <span id="st-score" style="font-size:18px;font-weight:700;color:var(--blue)">—</span>
+          <div id="st-detail" style="font-size:11px;color:var(--t2);margin-top:4px;font-family:var(--m);line-height:1.8"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct" style="margin-bottom:11px">🔔 เวลาเช็คอิน</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)"><div><div style="font-size:13px;font-weight:500">Morning</div><div style="font-size:11px;color:var(--t2)">07:00</div></div><label class="sw"><input type="checkbox" id="sw-m" checked><span class="sw-s"></span></label></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)"><div><div style="font-size:13px;font-weight:500">Midday</div><div style="font-size:11px;color:var(--t2)">12:00</div></div><label class="sw"><input type="checkbox" id="sw-d" checked><span class="sw-s"></span></label></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0"><div><div style="font-size:13px;font-weight:500">Evening</div><div style="font-size:11px;color:var(--t2)">20:00</div></div><label class="sw"><input type="checkbox" id="sw-e" checked><span class="sw-s"></span></label></div>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="ct" style="margin-bottom:11px">👤 Account</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)"><div><div style="font-size:13px;font-weight:500">Email / Account</div></div><span style="font-size:12px;color:var(--blue);font-weight:500" id="st-email">—</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)"><div style="font-size:13px;font-weight:500">Human Design</div><span class="chip c-bl">Emotional Authority</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd)"><div style="font-size:13px;font-weight:500">เริ่มใช้งาน</div><span style="font-size:12px;color:var(--t2)" id="st-startdate">—</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0"><div style="font-size:13px;font-weight:500">วันที่มีข้อมูล</div><span style="font-size:12px;color:var(--t2)" id="st-days">—</span></div>
+      </div>
+      <div class="card">
+        <div class="ct" style="margin-bottom:11px">💾 ข้อมูล</div>
+        <div style="padding:8px 0;border-bottom:1px solid var(--bd)"><div style="font-size:13px;font-weight:500">Storage</div><div style="font-size:11px;color:var(--t2);margin-top:2px" id="st-storage">—</div></div>
+        <div style="display:flex;gap:7px;margin-top:10px"><button class="btn bg2 bs" id="btn-export">📤 Export JSON</button><button class="btn bg2 bs" id="btn-clear" style="color:var(--danger)">🗑️ ล้างข้อมูล</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+</div></div>
+
+<script>
+// ════════════════════════════════════════
+// BUG FIX NOTES:
+// 1. imports MUST be first in module — moved to top
+// 2. .exists() is a METHOD in Firestore modular SDK
+// 3. dateKey defined before freshState
+// 4. where('__name__') unsupported — use client-side filter
+// 5. _set wrapper handles MergeOptions correctly
+// 6. Chart.js UMD → accessed via window.Chart inside module
+// 7. onclick removed from HTML → event delegation instead
+// 8. All module functions NOT global → event delegation
+// ════════════════════════════════════════
+
+// ── Chart.js from window (UMD loaded via <script> tag) ──
+const Chart = window.Chart;
+
+// ════════════════════════════════════════
+// CONSTANTS
+// ════════════════════════════════════════
+const DIMS = [
+  {k:'cognitive', l:'Cognitive Clarity',    w:0.20, c:'#4F8CFF', ic:'🧠'},
+  {k:'emotional', l:'Emotional Regulation', w:0.20, c:'#63E6BE', ic:'💫'},
+  {k:'intuition', l:'Intuition Alignment',  w:0.15, c:'#A855F7', ic:'🔮'},
+  {k:'physical',  l:'Physical Energy',      w:0.15, c:'#FFB86B', ic:'💪'},
+  {k:'discipline',l:'System Discipline',    w:0.20, c:'#2DD4A8', ic:'⚙️'},
+  {k:'spiritual', l:'Spiritual Coherence',  w:0.10, c:'#FF8A8A', ic:'✨'},
+];
+const MN  = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+const MNS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+// ════════════════════════════════════════
+// DATE HELPERS (defined BEFORE freshState)
+// ════════════════════════════════════════
+function dateKey(d) {
+  const dt = d || new Date();
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
+function todayKey(session) { return `${dateKey()}-${session}`; }
+
+// ════════════════════════════════════════
+// FIREBASE INIT — compat SDK (no login popup)
+// ════════════════════════════════════════
+// Firebase v12 — accessed via window._fb (set by ES module above)
+// fauth/fsdb are proxies; actual calls go through window._fb helpers
+const fauth = { currentUser: null }; // placeholder, updated by auth
+let CURRENT_UID = null;
+let FS_UNSUBSCRIBE = null;
+
+// ════════════════════════════════════════
+// STATE — Firestore + localStorage cache
+// ════════════════════════════════════════
+function freshState() {
+  return {
+    checkins: {},
+    settings: {'notif-m':true, 'notif-d':true, 'notif-e':true},
+    meta: { created: dateKey() }
+  };
+}
+let STATE = freshState();
+
+// ── Write checkin: local cache + Firestore ──
+async function saveCheckin(key, data) {
+  STATE.checkins[key] = data;
+  _cacheLocal();
+  if (!CURRENT_UID || !window._fb) return;
+  try {
+    await window._fb.setDoc(window._fb.checkinDoc(CURRENT_UID, key), { ...data, _key: key });
+  } catch(e) { console.warn('Firestore write error:', e); }
+}
+
+// ── Write settings ──
+async function saveSetting(key, val) {
+  STATE.settings[key] = val;
+  _cacheLocal();
+  if (!CURRENT_UID || !window._fb) return;
+  try {
+    await window._fb.setDoc(window._fb.settingsDoc(CURRENT_UID), STATE.settings, { merge: true });
+  } catch(e) { console.warn('Settings write error:', e); }
+}
+
+// ── Load all data from Firestore ──
+async function loadFromFirestore(uid) {
+  if (!window._fb) { _loadCache(); return false; }
+  try {
+    const stSnap = await window._fb.getDoc(window._fb.settingsDoc(uid));
+    if (stSnap.exists()) STATE.settings = { ...STATE.settings, ...stSnap.data() };
+    const snap = await window._fb.getDocs(window._fb.checkinsCol(uid));
+    snap.forEach(d => { STATE.checkins[d.id] = d.data(); });
+    _cacheLocal();
+    return true;
+  } catch(e) {
+    console.warn('Firestore load failed, using cache:', e);
+    _loadCache();
+    return false;
+  }
+}
+
+// ── Real-time listener for today's checkins ──
+function subscribeToday(uid) {
+  if (FS_UNSUBSCRIBE) FS_UNSUBSCRIBE();
+  const today = dateKey();
+  if (!window._fb) return;
+  FS_UNSUBSCRIBE = window._fb.onSnapshot(window._fb.checkinsCol(uid), snap => {
+    snap.docChanges().forEach(change => {
+      const id = change.doc.id;
+      if (id.startsWith(today)) {
+        if (change.type === 'added' || change.type === 'modified') {
+          STATE.checkins[id] = change.doc.data();
+        } else if (change.type === 'removed') {
+          delete STATE.checkins[id];
+        }
+      }
+    });
+    refreshBadges();
+  }, err => console.warn('Listener error:', err));
+}
+
+function _cacheLocal() {
+  try { localStorage.setItem('brainos_v5', JSON.stringify(STATE)); } catch(e) {}
+}
+function _loadCache() {
+  try {
+    const c = localStorage.getItem('brainos_v5');
+    if (c) STATE = { ...freshState(), ...JSON.parse(c) };
+  } catch(e) {}
+}
+
+// ════════════════════════════════════════
+// BRAINSCORE CALCULATION
+// ════════════════════════════════════════
+/*
+  INPUT KEYS per session:
+  Morning (m): sleep_hrs, sleep_quality, meditation_min, gratitude(0/1),
+               alignment(1-10), mood_idx(0-6), intensity(1-10),
+               body_signal(0-2), it_clarity(1-10)
+  Midday (d):  energy(1-10), focus_am(1-10), mood_idx(0-6), stress(1-10)
+  Evening (e): exercise_min(0-180), cold_min(0-20), hydration_idx(0-2),
+               deep_work_min(0-480), clarity(1-10), key_task_idx(0-2),
+               mood_idx(0-6), intensity(1-10), recovery_idx(0-2),
+               body_signal(0-2), it_clarity(1-10), contamination_idx(0-2),
+               screen_idx(0-2), routine_pct(0-100)
+
+  DIMENSION FORMULAS:
+  cognitive  = avg(sleepHrs→score, sleep_quality×10, deep_work/240×100, clarity×10)
+  emotional  = avg(mood_m→score, mood_d→score, mood_e→score, 100-(intensity_m-1)×10, 100-(intensity_e-1)×10, recovery→score)
+  intuition  = avg(body_sig_m→score, it_clarity_m×10, body_sig_e→score, it_clarity_e×10, contamination→score)
+  physical   = avg(exercise/60×100, cold/10×100, hydration→score)
+  discipline = avg(gratitude×100, alignment×10, key_task→score, routine_pct)
+  spiritual  = avg(meditation/30×100, alignment×10, screen→score)
+
+  BRAINSCORE = Σ(dimension × weight)
+*/
+function calcDimScores(m, d, e) {
+  const n  = (v, fb) => (v !== undefined && v !== null && !isNaN(+v)) ? +v : fb;
+  const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const av = (...vals) => {
+    const f = vals.filter(v => v != null && !isNaN(v));
+    return f.length ? Math.round(f.reduce((a,b)=>a+b,0)/f.length) : 50;
+  };
+
+  // Sleep hours → score table
+  const sleepScore = (h) => {
+    if(h < 4)  return 20;
+    if(h < 5)  return 40;
+    if(h < 6)  return 60;
+    if(h < 7)  return 75;
+    if(h <= 8.5) return 100;
+    if(h <= 9.5) return 85;
+    return 70; // oversleep penalty
+  };
+  const moodScore   = (i) => [0,20,40,60,80,90,100][cl(i,0,6)];
+  const sigScore    = (i) => [30,65,100][cl(i,0,2)];
+  const hydroScore  = (i) => [30,65,100][cl(i,0,2)];
+  const recovScore  = (i) => [30,65,100][cl(i,0,2)];
+  const contamScore = (i) => [100,65,30][cl(i,0,2)];
+  const screenScore = (i) => [100,60,20][cl(i,0,2)];
+  const taskScore   = (i) => [0,50,100][cl(i,0,2)];
+
+  // Morning inputs
+  const sleep_hrs    = n(m?.sleep_hrs,    7);
+  const sleep_qual   = n(m?.sleep_quality,7);
+  const meditation   = n(m?.meditation_min,0);
+  const gratitude    = n(m?.gratitude,    0);
+  const alignment    = n(m?.alignment,    7);
+  const mood_m       = n(m?.mood_idx,     3);
+  const intensity_m  = n(m?.intensity,    5);
+  const body_sig_m   = n(m?.body_signal,  1);
+  const it_clar_m    = n(m?.it_clarity,   7);
+
+  // Midday inputs
+  const mood_d       = n(d?.mood_idx, 3);
+  const stress_d     = n(d?.stress,   4); // lower=better
+
+  // Evening inputs
+  const exercise     = n(e?.exercise_min,    0);
+  const cold         = n(e?.cold_min,        0);
+  const hydration    = n(e?.hydration_idx,   1);
+  const deep_work    = n(e?.deep_work_min,  60);
+  const clarity_e    = n(e?.clarity,         7);
+  const key_task     = n(e?.key_task_idx,    1);
+  const mood_e       = n(e?.mood_idx,        3);
+  const intensity_e  = n(e?.intensity,       5);
+  const recovery     = n(e?.recovery_idx,    1);
+  const body_sig_e   = n(e?.body_signal,     1);
+  const it_clar_e    = n(e?.it_clarity,      7);
+  const contamination= n(e?.contamination_idx,0);
+  const screen       = n(e?.screen_idx,      1);
+  const routine_pct  = n(e?.routine_pct,    70);
+
+  // ── 6 Dimensions ──
+  const cognitive = cl(av(
+    sleepScore(sleep_hrs),
+    sleep_qual * 10,
+    cl(deep_work / 240 * 100, 0, 100),
+    clarity_e * 10
+  ), 0, 100);
+
+  const emotional = cl(av(
+    moodScore(mood_m),
+    moodScore(mood_d),
+    moodScore(mood_e),
+    100 - (intensity_m - 1) * 10,
+    100 - (intensity_e - 1) * 10,
+    recovScore(recovery)
+  ), 0, 100);
+
+  const intuition = cl(av(
+    sigScore(body_sig_m),
+    it_clar_m * 10,
+    sigScore(body_sig_e),
+    it_clar_e * 10,
+    contamScore(contamination)
+  ), 0, 100);
+
+  const physical = cl(av(
+    cl(exercise / 60 * 100, 0, 100),
+    cl(cold / 10 * 100, 0, 100),
+    hydroScore(hydration)
+  ), 0, 100);
+
+  const discipline = cl(av(
+    gratitude * 100,
+    alignment * 10,
+    taskScore(key_task),
+    routine_pct
+  ), 0, 100);
+
+  const spiritual = cl(av(
+    cl(meditation / 30 * 100, 0, 100),
+    alignment * 10,
+    screenScore(screen)
+  ), 0, 100);
+
+  const dims = { cognitive, emotional, intuition, physical, discipline, spiritual };
+
+  // ── BrainScore weighted sum ──
+  // Verification: 0.20+0.20+0.15+0.15+0.20+0.10 = 1.00 ✓
+  const brainscore = Math.round(
+    cognitive  * 0.20 +
+    emotional  * 0.20 +
+    intuition  * 0.15 +
+    physical   * 0.15 +
+    discipline * 0.20 +
+    spiritual  * 0.10
+  );
+
+  return { dims, brainscore };
+}
+
+function getTodayScores() {
+  return calcDimScores(
+    STATE.checkins[todayKey('m')],
+    STATE.checkins[todayKey('d')],
+    STATE.checkins[todayKey('e')]
+  );
+}
+
+function getHistory(days) {
+  const result = [];
+  const today = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const dt = new Date(today);
+    dt.setDate(today.getDate() - i);
+    const dk = dateKey(dt);
+    const m = STATE.checkins[`${dk}-m`];
+    const d = STATE.checkins[`${dk}-d`];
+    const e = STATE.checkins[`${dk}-e`];
+    const label = `${dt.getDate()}/${dt.getMonth()+1}`;
+    if (m || e) {
+      result.push({ date:dk, score:calcDimScores(m,d,e).brainscore, label });
+    } else {
+      result.push({ date:dk, score:null, label });
+    }
+  }
+  return result;
+}
+
+function getScoreZone(s) {
+  if(s >= 85) return {label:'ยอดเยี่ยม — Peak Zone 🚀',    desc:'สมองและร่างกายพร้อมเต็มที่ วันนี้คือวันที่ดีที่สุด'};
+  if(s >= 75) return {label:'ดีมาก — High Zone 🎯',         desc:'สมองพร้อมทำงานหนัก ตัดสินใจสำคัญได้วันนี้'};
+  if(s >= 65) return {label:'ดี — Stable Zone ✅',           desc:'สภาพดี ทำงานประจำได้เต็มที่'};
+  if(s >= 50) return {label:'กลาง — Recovery Zone ⚡',       desc:'พอใช้ได้ ระวังการตัดสินใจสำคัญ'};
+  return       {label:'ต่ำ — Rest Zone 🛌',                  desc:'ร่างกายและสมองต้องการพักฟื้น'};
+}
+
+function scoreColor(v) {
+  if(!v && v!==0) return 'rgba(79,140,255,.05)';
+  if(v>=80) return '#2563EB'; if(v>=70) return '#4F8CFF';
+  if(v>=60) return '#79C7FF'; if(v>=50) return '#B8D4FF';
+  return '#EAF4FF';
+}
+
+// ════════════════════════════════════════
+// NAVIGATION — event delegation (no inline onclick)
+// ════════════════════════════════════════
+const PAGE_CFG = {
+  cmd:       {t:'Command Center',       s:'ภาพรวมวันนี้'},
+  'ci-m':    {t:'Morning Check-in 🌅',  s:'การนอน · สมาธิ · อารมณ์ · Intuition'},
+  'ci-d':    {t:'Midday Check-in ☀️',   s:'พลังงาน · โฟกัส · อารมณ์กลางวัน'},
+  'ci-e':    {t:'Evening Check-in 🌙',  s:'พลังกาย · ความคิด · Intuition · สรุปวัน'},
+  insight:   {t:'Daily Insight 💡',     s:'วิเคราะห์อัตโนมัติ'},
+  weekly:    {t:'Weekly Review 📅',     s:'สรุปรายสัปดาห์'},
+  monthly:   {t:'Monthly Review 📆',    s:'ภาพรวมรายเดือน'},
+  yearly:    {t:'Yearly Overview 🗓',   s:'ภาพรวมทั้งปี'},
+  intuition: {t:'Intuition Report 🔮',  s:'วิเคราะห์จาก Check-in'},
+  emotion:   {t:'Emotion Report 💫',    s:'วิเคราะห์จาก Check-in'},
+  settings:  {t:'Settings ⚙️',          s:'ปรับแต่ง BrainOS'},
+};
+
+function go(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.sb-btn, .sb-ci').forEach(b => b.classList.remove('on'));
+  const pg = document.getElementById('p-' + name);
+  if(pg) pg.classList.add('on');
+  // Highlight sidebar + bottom nav buttons
+  document.querySelectorAll('[data-page]').forEach(b => {
+    if(b.dataset.page === name) b.classList.add('on');
+  });
+  const cfg = PAGE_CFG[name] || {t:name, s:''};
+  document.getElementById('tb-t').textContent = cfg.t;
+  document.getElementById('tb-s').textContent = cfg.s;
+  if(name==='cmd')      renderCmd();
+  if(name==='insight')  renderInsight();
+  if(name==='weekly')   renderWeekly();
+  if(name==='monthly')  renderMo();
+  if(name==='yearly')   renderYr();
+  if(name==='settings') renderSettings();
+  if(name==='intuition')renderItReport();
+  if(name==='emotion')  renderEmReport();
+  // Close bottom nav drawer on any navigation
+  document.getElementById('bnav-drawer')?.classList.remove('open');
+  document.getElementById('bnav-overlay')?.classList.remove('open');
+  // Update bottom nav badge state
+  if(typeof updateNavBadge === 'function') updateNavBadge();
+}
+
+// ════════════════════════════════════════
+// CHART HELPERS
+// ════════════════════════════════════════
+const charts = {};
+function destroyChart(id) {
+  if(charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+const chOpts = (extra={}) => ({
+  responsive:true, maintainAspectRatio:false,
+  plugins:{legend:{display:false}},
+  ...extra
+});
+const xAx = (t={}) => ({grid:{display:false}, border:{display:false}, ticks:{color:'#60708A', font:{size:10}, maxTicksLimit:8, ...t}});
+const yAx = (mn, mx) => ({min:mn, max:mx, grid:{color:'rgba(79,140,255,.06)'}, border:{display:false}, ticks:{color:'#60708A', font:{size:10}}});
+
+function makeLine(id, labels, data, color, bgColor) {
+  const ctx = document.getElementById(id); if(!ctx) return;
+  destroyChart(id);
+  charts[id] = new Chart(ctx, {
+    type:'line',
+    data:{labels, datasets:[{data, borderColor:color, backgroundColor:bgColor, borderWidth:2, fill:true, tension:.4, pointRadius:0, pointHoverRadius:5, spanGaps:true}]},
+    options:{...chOpts(), scales:{x:xAx(), y:yAx(0,100)}}
+  });
+}
+
+function makeBar(id, labels, data, colors) {
+  const ctx = document.getElementById(id); if(!ctx) return;
+  destroyChart(id);
+  charts[id] = new Chart(ctx, {
+    type:'bar',
+    data:{labels, datasets:[{data, backgroundColor:colors, borderRadius:7, borderSkipped:false}]},
+    options:{...chOpts(), scales:{x:xAx(), y:yAx(0,100)}}
+  });
+}
+
+function updateRing(arcId, score, circum) {
+  const arc = document.getElementById(arcId); if(!arc) return;
+  arc.setAttribute('stroke-dashoffset', (circum - (score/100)*circum).toFixed(1));
+}
+
+function statCards(data) {
+  return data.map(s =>
+    `<div class="sc"><div class="sc-a" style="background:${s.g}"></div><div class="sc-l">${s.l}</div><div class="sc-v" style="color:${s.c}">${s.v}</div><div class="sc-d" style="color:var(--t3)">${s.d}</div></div>`
+  ).join('');
+}
+
+// ════════════════════════════════════════
+// COMMAND CENTER
+// ════════════════════════════════════════
+function renderCmd() {
+  const { dims, brainscore } = getTodayScores();
+  const zone = getScoreZone(brainscore);
+  const history = getHistory(30);
+  const yesterday = history[history.length-2];
+  const delta = (yesterday?.score != null) ? brainscore - yesterday.score : null;
+
+  // Ring + score
+  document.getElementById('ring-score').textContent = brainscore;
+  updateRing('ring-arc', brainscore, 352);
+  document.getElementById('score-label').textContent = zone.label;
+  document.getElementById('score-desc').textContent  = zone.desc;
+  const dEl = document.getElementById('score-delta');
+  if(delta != null) {
+    dEl.textContent = (delta>=0?'+':'')+delta+' จากเมื่อวาน';
+    dEl.style.display = '';
+  }
+
+  // Dim list
+  document.getElementById('dim-list').innerHTML = DIMS.map(d =>
+    `<div class="dr"><div class="dn2">${d.ic} ${d.l}</div><div class="db"><div class="df" style="width:${dims[d.k]}%;background:${d.c}"></div></div><div class="dsv" style="color:${d.c}">${dims[d.k]}</div></div>`
+  ).join('');
+
+  // Quick stats
+  const tm = STATE.checkins[todayKey('m')] || {};
+  const te = STATE.checkins[todayKey('e')] || {};
+  document.getElementById('quick-stats').innerHTML = statCards([
+    {l:'การนอน',   v:`${tm.sleep_hrs??'—'}<small style="font-size:11px"> ชม.</small>`, c:'#4F8CFF', g:'linear-gradient(90deg,#4F8CFF,#79C7FF)', d:tm.sleep_hrs?(+tm.sleep_hrs>=7?'✓ เพียงพอ':'⚠ น้อยกว่าเป้า'):'ยังไม่มีข้อมูล'},
+    {l:'Deep Work', v:`${te.deep_work_min??'—'}<small style="font-size:11px"> นาที</small>`, c:'#2DD4A8', g:'linear-gradient(90deg,#63E6BE,#2DD4A8)', d:te.deep_work_min?(+te.deep_work_min>=120?'✓ เป้าสำเร็จ':'⚠ ต่ำกว่าเป้า'):'ยังไม่มีข้อมูล'},
+    {l:'อารมณ์',   v:`${dims.emotional}<small style="font-size:11px">/100</small>`,   c:'#FFB86B', g:'linear-gradient(90deg,#FFB86B,#FF9A3C)', d:dims.emotional>=70?'✓ มั่นคงดี':dims.emotional>=50?'→ ปานกลาง':'⚠ ต้องดูแล'},
+    {l:'Intuition', v:`${dims.intuition}<small style="font-size:11px">/100</small>`,   c:'#A855F7', g:'linear-gradient(90deg,#C084FC,#A855F7)', d:dims.intuition>=70?'✓ ชัดเจน':dims.intuition>=50?'→ ปานกลาง':'⚠ ระวัง'},
+  ]);
+
+  // Checkin status
+  const lastCI = STATE.checkins[todayKey('e')] ? 'Evening เสร็จแล้ว ✓' :
+    STATE.checkins[todayKey('d')] ? 'Midday เสร็จแล้ว · รอ Evening 🌙' :
+    STATE.checkins[todayKey('m')] ? 'Morning เสร็จแล้ว · รอ Midday ☀️' : 'ยังไม่ได้เช็คอินวันนี้';
+  document.getElementById('cmd-last-ci').textContent = lastCI;
+
+  // Charts
+  makeLine('c-line30', history.map(h=>h.label), history.map(h=>h.score), '#4F8CFF', 'rgba(79,140,255,.09)');
+  // Radar
+  destroyChart('radar');
+  const rCtx = document.getElementById('c-radar');
+  if(rCtx) charts['radar'] = new Chart(rCtx, {
+    type:'radar',
+    data:{labels:['Cognitive','Emotional','Intuition','Physical','Discipline','Spiritual'], datasets:[{data:DIMS.map(d=>dims[d.k]), borderColor:'#4F8CFF', backgroundColor:'rgba(79,140,255,.1)', borderWidth:2, pointBackgroundColor:'#4F8CFF', pointRadius:3}]},
+    options:{...chOpts(), scales:{r:{min:0, max:100, grid:{color:'rgba(79,140,255,.1)'}, angleLines:{color:'rgba(79,140,255,.1)'}, ticks:{display:false}, pointLabels:{color:'#60708A',font:{size:10}}}}}
+  });
+
+  // Alerts
+  const alerts = [];
+  if(brainscore>=75) alerts.push({t:'ok', ic:'✅', title:'พร้อมตัดสินใจสำคัญ', body:'BrainScore อยู่ใน High Zone — เหมาะสำหรับกลยุทธ์ ลงทุน วางแผนระยะยาว'});
+  if(dims.spiritual<60) alerts.push({t:'warn', ic:'⚠️', title:'Spiritual Coherence ต่ำ', body:'ทำสมาธิ 10–15 นาทีก่อนตัดสินใจสำคัญ'});
+  if(dims.physical<60) alerts.push({t:'warn', ic:'💪', title:'พลังงานกายต่ำ', body:'ออกกำลังกายหรือเดิน 20 นาที เพื่อ reset Nervous System'});
+  if(dims.cognitive>=80) alerts.push({t:'info', ic:'🧠', title:'Cognitive พร้อมเต็มที่', body:`${dims.cognitive}/100 — ช่วงที่ดีสำหรับ Deep Work`});
+  if(!alerts.length) alerts.push({t:'info', ic:'💡', title:'เช็คอินเพื่อดูคำแนะนำที่แม่นยำ', body:'ข้อมูลจาก Morning + Midday + Evening Check-in จะให้ Insights ที่ดีขึ้น'});
+  document.getElementById('cmd-alerts').innerHTML = alerts.map(a =>
+    `<div class="al al-${a.t}"><div class="al-icon">${a.ic}</div><div><div class="al-t" style="color:${a.t==='ok'?'#16806A':a.t==='warn'?'#9A5E10':'var(--blue)'}">${a.title}</div><div class="al-b">${a.body}</div></div></div>`
+  ).join('');
+
+  // Risk chip
+  const chip = document.getElementById('risk-chip');
+  if(brainscore>=70 && dims.emotional>=60) { chip.className='chip c-mi'; chip.textContent='✅ พร้อมตัดสินใจ'; }
+  else if(brainscore>=55) { chip.className='chip c-wa'; chip.textContent='⚠️ ระวังการตัดสินใจ'; }
+  else { chip.className='chip'; chip.style.cssText='background:var(--dangerb);color:#A83030;display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500'; chip.textContent='🛑 หลีกเลี่ยงการตัดสินใจสำคัญ'; }
+
+  // Greeting
+  const hr = new Date().getHours();
+  document.getElementById('cmd-greet').textContent = hr<12?'สวัสดีตอนเช้า 🌅':hr<17?'สวัสดีตอนบ่าย ☀️':'สวัสดีตอนเย็น 🌙';
+}
+
+// ════════════════════════════════════════
+// INSIGHT
+// ════════════════════════════════════════
+function renderInsight() {
+  const { dims, brainscore } = getTodayScores();
+  const history = getHistory(30);
+  const yesterday = history[history.length-2];
+  const delta = yesterday?.score!=null ? brainscore-yesterday.score : null;
+  document.getElementById('ins-score').textContent = brainscore;
+  updateRing('ins-arc', brainscore, 283);
+  document.getElementById('ins-label').textContent = getScoreZone(brainscore).label.split('—')[1]?.trim()||'';
+  const dEl = document.getElementById('ins-delta');
+  if(delta!=null){dEl.textContent=(delta>=0?'+':'')+delta+' จากเมื่อวาน';dEl.style.display='';}
+
+  // AI Guidance
+  const strong = DIMS.filter(d=>dims[d.k]>=75).map(d=>d.l);
+  const weak   = DIMS.filter(d=>dims[d.k]<60).map(d=>d.l);
+  document.getElementById('ins-guidance').innerHTML = [
+    strong.length ? {t:'ok',  ic:'💪', title:'จุดแข็ง',    body:strong.join(', ')+' อยู่ในระดับสูง'} : null,
+    weak.length   ? {t:'warn',ic:'⚠️', title:'ควรพัฒนา',  body:weak.join(', ')+' ต่ำกว่าเกณฑ์'} : null,
+    {t:'info', ic:'💡', title:'Action Plan', body:`Deep Work ช่วงที่ Cognitive สูง · สมาธิ ${dims.spiritual<70?'15–30':'10'} นาที · Gratitude ก่อนนอน`},
+  ].filter(Boolean).map(a =>
+    `<div class="al al-${a.t}"><div class="al-icon">${a.ic}</div><div><div class="al-t" style="color:${a.t==='ok'?'#16806A':a.t==='warn'?'#9A5E10':'var(--blue)'}">${a.title}</div><div class="al-b">${a.body}</div></div></div>`
+  ).join('');
+
+  // Dim breakdown
+  const tips = {cognitive:'นอนหลับ + Deep Work',emotional:'Mood + Recovery',intuition:'Body Signal + Contamination',physical:'ออกกำลังกาย + Cold + น้ำ',discipline:'Routine + Alignment + Key task',spiritual:'สมาธิ + Alignment + Screen'};
+  document.getElementById('ins-dim').innerHTML = DIMS.map(d =>
+    `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(79,140,255,.06)">
+      <span style="font-size:16px;width:20px">${d.ic}</span>
+      <div style="flex:1"><div style="font-size:12px;font-weight:600;margin-bottom:1px">${d.l}</div><div style="font-size:11px;color:var(--t2)">${tips[d.k]}</div></div>
+      <div style="min-width:68px"><div style="height:4px;background:var(--bluel);border-radius:2px;overflow:hidden"><div style="width:${dims[d.k]}%;height:100%;background:${d.c};border-radius:2px"></div></div></div>
+      <div style="font-size:15px;font-weight:700;color:${d.c};min-width:26px;text-align:right">${dims[d.k]}</div>
+      <span style="font-size:10px;color:var(--t3);min-width:22px">×${d.w}</span>
+    </div>`).join('');
+
+  // Trend charts
+  const h14 = getHistory(14);
+  const l14 = h14.map(h=>h.label);
+  makeLine('c-it', l14, h14.map(h=>h.score!=null?calcDimScores(STATE.checkins[`${h.date}-m`],STATE.checkins[`${h.date}-d`],STATE.checkins[`${h.date}-e`]).dims.intuition:null), '#A855F7','rgba(168,85,247,.08)');
+  makeLine('c-em', l14, h14.map(h=>h.score!=null?calcDimScores(STATE.checkins[`${h.date}-m`],STATE.checkins[`${h.date}-d`],STATE.checkins[`${h.date}-e`]).dims.emotional:null), '#63E6BE','rgba(99,230,190,.08)');
+}
+
+// ════════════════════════════════════════
+// WEEKLY
+// ════════════════════════════════════════
+function renderWeekly() {
+  const hist7 = getHistory(7);
+  const valid = hist7.filter(h=>h.score!=null);
+  const avg7  = valid.length ? Math.round(valid.reduce((a,b)=>a+b.score,0)/valid.length) : null;
+  const best7 = valid.length ? Math.max(...valid.map(h=>h.score)) : null;
+  const bestDay = valid.find(h=>h.score===best7)?.label || '—';
+  document.getElementById('wk-stats').innerHTML = statCards([
+    {l:'Average',     v:avg7??'—',   c:'#4F8CFF', g:'linear-gradient(90deg,#4F8CFF,#79C7FF)', d:avg7?(avg7>=70?'↑ ดีมาก':'→ ปานกลาง'):'—'},
+    {l:'Best Day',    v:best7??'—',  c:'#2DD4A8', g:'linear-gradient(90deg,#63E6BE,#2DD4A8)', d:bestDay},
+    {l:'Check-in',    v:`${valid.length}<small style="font-size:11px">/7</small>`, c:'#FFB86B', g:'linear-gradient(90deg,#FFB86B,#FF9A3C)', d:`${valid.length} วัน`},
+    {l:'Consistency', v:`${Math.round(valid.length/7*100)}%`, c:'#A855F7', g:'linear-gradient(90deg,#C084FC,#A855F7)', d:valid.length>=5?'✓ ต่อเนื่องดี':'→ เพิ่มความสม่ำเสมอ'},
+  ]);
+  makeBar('c-wkbar', hist7.map(h=>h.label), hist7.map(h=>h.score??0), hist7.map(h=>h.score===best7?'#4F8CFF':'rgba(79,140,255,.45)'));
+  const routineData = hist7.map(h => STATE.checkins[`${h.date}-e`]?.routine_pct ?? null);
+  makeLine('c-rtline', hist7.map(h=>h.label), routineData, '#FFB86B', 'rgba(255,184,107,.09)');
+  // Patterns
+  const patterns = [];
+  const sleepPairs = hist7.filter(h=>STATE.checkins[`${h.date}-m`]).map(h=>({s:h.score,sl:+STATE.checkins[`${h.date}-m`].sleep_hrs}));
+  const goodSl = sleepPairs.filter(x=>x.sl>=7); const badSl = sleepPairs.filter(x=>x.sl<6);
+  if(goodSl.length && badSl.length) {
+    const gA=Math.round(goodSl.reduce((a,b)=>a+b.s,0)/goodSl.length);
+    const bA=Math.round(badSl.reduce((a,b)=>a+b.s,0)/badSl.length);
+    if(gA>bA) patterns.push({t:'info',ic:'💡',title:`นอน 7+ ชม. → Score +${gA-bA} คะแนนเฉลี่ย`,body:`วันที่นอนพอ (avg ${gA}) สูงกว่าวันนอนน้อย (avg ${bA})`});
+  }
+  if(!patterns.length) patterns.push({t:'info',ic:'📊',title:'เช็คอินให้สม่ำเสมอเพื่อดู Pattern',body:'ต้องการข้อมูลอย่างน้อย 5 วัน'});
+  document.getElementById('wk-pat').innerHTML = patterns.map(p=>
+    `<div class="al al-${p.t}"><div class="al-icon">${p.ic}</div><div><div class="al-t" style="color:${p.t==='warn'?'#9A5E10':'var(--blue)'}">${p.title}</div><div class="al-b">${p.body}</div></div></div>`).join('');
+}
+
+// ════════════════════════════════════════
+// MONTHLY
+// ════════════════════════════════════════
+let curMo = new Date().getMonth()+1;
+let curYr = new Date().getFullYear();
+function renderMo() {
+  document.getElementById('mo-ttl').textContent = `${MN[curMo-1]} ${curYr+543}`;
+  const days = new Date(curYr,curMo,0).getDate();
+  const scores = [];
+  for(let d=1;d<=days;d++) {
+    const dk = `${curYr}-${String(curMo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const m=STATE.checkins[`${dk}-m`], dv=STATE.checkins[`${dk}-d`], e=STATE.checkins[`${dk}-e`];
+    scores.push((m||e) ? calcDimScores(m,dv,e).brainscore : null);
+  }
+  const valid=scores.filter(s=>s!=null);
+  const avg=valid.length?+(valid.reduce((a,b)=>a+b,0)/valid.length).toFixed(1):null;
+  const best=valid.length?Math.max(...valid):null;
+  const worst=valid.length?Math.min(...valid):null;
+  document.getElementById('mo-stats').innerHTML = statCards([
+    {l:'Average',        v:avg??'—',  c:'#4F8CFF', g:'linear-gradient(90deg,#4F8CFF,#63E6BE)', d:avg?(avg>=70?'↑ ดีมาก':'→ ปานกลาง'):'ยังไม่มีข้อมูล'},
+    {l:'Best Day',       v:best??'—', c:'#2DD4A8', g:'linear-gradient(90deg,#63E6BE,#2DD4A8)', d:best?`วันที่ ${scores.indexOf(best)+1}`:'—'},
+    {l:'Worst Day',      v:worst??'—',c:'#FFB86B', g:'linear-gradient(90deg,#FFB86B,#FF9A3C)', d:worst?`วันที่ ${scores.indexOf(worst)+1}`:'—'},
+    {l:'วันที่มีข้อมูล',v:`${valid.length}<small style="font-size:11px">/${days}</small>`, c:'#A855F7', g:'linear-gradient(90deg,#C084FC,#A855F7)', d:valid.length?`${Math.round(valid.length/days*100)}%`:'—'},
+  ]);
+  // Calendar heatmap
+  const first=new Date(curYr,curMo-1,1).getDay(), off=first===0?6:first-1;
+  let h=''; for(let i=0;i<off;i++)h+='<div></div>';
+  for(let d=1;d<=days;d++){const s=scores[d-1];const bg=s!=null?scoreColor(s):'rgba(79,140,255,.04)';const tc=s!=null&&s>=70?'white':'var(--t2)';h+=`<div class="mo-cell" style="background:${bg}" title="${d}: ${s??'—'}"><span style="font-size:9px;font-weight:600;color:${tc}">${d}</span></div>`;}
+  document.getElementById('mo-cal').innerHTML=h;
+  // Line
+  makeLine('c-moline', scores.map((_,i)=>String(i+1)), scores, '#4F8CFF','rgba(79,140,255,.08)');
+  // Compare 3 months
+  const moAvgs=[],moLabs=[];
+  for(let mi=0;mi<3;mi++){let mo=curMo-2+mi,yr=curYr;if(mo<1){mo+=12;yr--;}if(mo>12){mo-=12;yr++;}const ds=new Date(yr,mo,0).getDate();const sc2=[];for(let d=1;d<=ds;d++){const dk=`${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const m=STATE.checkins[`${dk}-m`],dv=STATE.checkins[`${dk}-d`],e=STATE.checkins[`${dk}-e`];if(m||e)sc2.push(calcDimScores(m,dv,e).brainscore);}moAvgs.push(sc2.length?+(sc2.reduce((a,b)=>a+b,0)/sc2.length).toFixed(1):0);moLabs.push(MNS[mo-1]);}
+  makeBar('c-mocomp', moLabs, moAvgs, moAvgs.map((_,i)=>i===2?'#4F8CFF':'rgba(79,140,255,.35)'));
+  // Dim compare
+  const {dims:dNow}=getTodayScores();const prev=[78,70,76,68,80,60];
+  document.getElementById('mo-dim').innerHTML=DIMS.map((d,i)=>{const diff=dNow[d.k]-prev[i];const arrow=diff>0?'↑':diff<0?'↓':'→';const dc=diff>0?'#2DD4A8':diff<0?'#FF8A8A':'#A0AEBF';return`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(79,140,255,.06)"><span style="font-size:14px;width:18px">${d.ic}</span><div style="flex:1"><div style="font-size:12px;font-weight:500;margin-bottom:3px">${d.l}</div><div style="display:flex;gap:4px"><div style="height:4px;flex:1;background:var(--bluel);border-radius:2px;overflow:hidden"><div style="width:${prev[i]}%;height:100%;background:rgba(160,174,191,.5);border-radius:2px"></div></div><div style="height:4px;flex:1;background:var(--bluel);border-radius:2px;overflow:hidden"><div style="width:${dNow[d.k]}%;height:100%;background:${d.c};border-radius:2px"></div></div></div></div><span style="font-size:13px;font-weight:700;color:${d.c}">${dNow[d.k]}</span><span style="font-size:11px;color:${dc};min-width:28px">${arrow}${Math.abs(diff)}</span></div>`;}).join('');
+}
+
+// ════════════════════════════════════════
+// YEARLY
+// ════════════════════════════════════════
+function renderYr() {
+  const yr=new Date().getFullYear();
+  let allDays=[],totalValid=0,longestStreak=0,curStreak=0;
+  const moData={};
+  for(let mo=1;mo<=12;mo++){const ds=new Date(yr,mo,0).getDate();moData[mo]=[];for(let d=1;d<=ds;d++){const dk=`${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const m=STATE.checkins[`${dk}-m`],dv=STATE.checkins[`${dk}-d`],e=STATE.checkins[`${dk}-e`];const s=(m||e)?calcDimScores(m,dv,e).brainscore:null;allDays.push({mo,d,s});moData[mo].push(s);if(s!=null){totalValid++;curStreak++;longestStreak=Math.max(longestStreak,curStreak);}else curStreak=0;}}
+  const moAvgs=Object.keys(moData).map(mo=>{const v=moData[mo].filter(s=>s!=null);return v.length?+(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1):null;});
+  const vA=moAvgs.filter(a=>a!=null);
+  const yrAvg=vA.length?+(vA.reduce((a,b)=>a+b,0)/vA.length).toFixed(1):null;
+  const bestMoIdx=moAvgs.indexOf(Math.max(...moAvgs.filter(a=>a!=null)));
+  document.getElementById('yr-stats').innerHTML=statCards([
+    {l:'Average ปีนี้',   v:yrAvg??'—',   c:'#4F8CFF', g:'linear-gradient(90deg,#4F8CFF,#63E6BE)', d:yrAvg?(yrAvg>=70?'↑ ดีมาก':'→ ปานกลาง'):'ยังไม่มีข้อมูล'},
+    {l:'Best Month',      v:moAvgs[bestMoIdx]!=null?MNS[bestMoIdx]:'—', c:'#2DD4A8', g:'linear-gradient(90deg,#63E6BE,#2DD4A8)', d:moAvgs[bestMoIdx]!=null?`avg ${moAvgs[bestMoIdx]}`:'—'},
+    {l:'Days Checked',    v:`${totalValid}<small style="font-size:11px"> วัน</small>`, c:'#FFB86B', g:'linear-gradient(90deg,#FFB86B,#FF9A3C)', d:`จาก ${allDays.length} วัน`},
+    {l:'Longest Streak',  v:`${longestStreak}<small style="font-size:11px"> วัน</small>`, c:'#A855F7', g:'linear-gradient(90deg,#C084FC,#A855F7)', d:longestStreak>=7?'🔥 ยอดเยี่ยม':longestStreak>0?'→ Keep going':'—'},
+  ]);
+  // Heatmap
+  const firstDow=new Date(yr,0,1).getDay(),off=firstDow===0?6:firstDow-1;
+  const totalCols=Math.ceil((allDays.length+off)/7);
+  let hh='<div style="display:flex;gap:2px;margin-bottom:4px">';
+  let lastMo=-1,colM=[];
+  for(let c=0;c<totalCols;c++){const idx=c*7-off;if(idx>=0&&idx<allDays.length&&allDays[idx].mo!==lastMo){colM.push({col:c,mo:allDays[idx].mo});lastMo=allDays[idx].mo;}}
+  colM.forEach((cm,ci)=>{const w=(ci+1<colM.length?colM[ci+1].col:totalCols)-cm.col;hh+=`<span style="min-width:${w*14}px;font-size:9px;color:var(--t3)">${MNS[cm.mo-1]}</span>`;});
+  hh+='</div><div class="yr-wrap">';
+  for(let c=0;c<totalCols;c++){hh+='<div class="yr-col">';for(let r=0;r<7;r++){const idx=c*7+r-off;if(idx<0||idx>=allDays.length){hh+='<div class="yr-cell" style="background:transparent"></div>';}else{const s=allDays[idx].s;hh+=`<div class="yr-cell" style="background:${scoreColor(s)}" title="${MNS[allDays[idx].mo-1]} ${allDays[idx].d}: ${s??'—'}"></div>`;}}hh+='</div>';}
+  document.getElementById('yr-hmap').innerHTML=hh+'</div>';
+  // Ranking
+  const ranked=moAvgs.map((a,i)=>({mo:MN[i],a,i})).filter(x=>x.a!=null).sort((a,b)=>b.a-a.a);
+  const medals=['🥇','🥈','🥉'];
+  document.getElementById('mo-rank').innerHTML=ranked.slice(0,3).map((x,i)=>
+    `<div class="mo-sr"><span style="font-size:15px">${medals[i]}</span><div style="flex:1"><div style="font-size:12.5px;font-weight:500">${x.mo}</div><div style="height:4px;background:var(--bluel);border-radius:2px;overflow:hidden;margin-top:4px"><div style="width:${x.a}%;height:100%;background:${['#4F8CFF','#79C7FF','#B8D4FF'][i]};border-radius:2px"></div></div></div><div style="font-size:14px;font-weight:700;color:#4F8CFF">${x.a}</div></div>`).join('')+
+    (ranked.length===0?'<div style="font-size:12px;color:var(--t3);padding:12px 0">ยังไม่มีข้อมูล — เริ่มเช็คอินเพื่อดู Ranking</div>':'');
+  // Trend
+  makeLine('c-yrtrend', MNS, moAvgs, '#4F8CFF','rgba(79,140,255,.08)');
+  // Dim progress
+  const {dims:dNow}=getTodayScores();const startDims=[72,68,70,65,78,56];
+  document.getElementById('yr-dim').innerHTML=DIMS.map((d,i)=>{const diff=dNow[d.k]-startDims[i];const arrow=diff>0?'↑':diff<0?'↓':'→';const dc=diff>0?'#2DD4A8':diff<0?'#FF8A8A':'#A0AEBF';return`<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(79,140,255,.06)"><span style="font-size:15px;width:18px">${d.ic}</span><div style="flex:1"><div style="font-size:12px;font-weight:500;margin-bottom:4px;display:flex;justify-content:space-between"><span>${d.l}</span><span style="font-size:11px;color:${dc}">${arrow} ${Math.abs(diff)} จากต้นปี</span></div><div style="position:relative;height:5px;background:var(--bluel);border-radius:3px;overflow:hidden"><div style="position:absolute;left:0;top:0;width:${startDims[i]}%;height:100%;background:rgba(160,174,191,.4);border-radius:3px"></div><div style="position:absolute;left:0;top:0;width:${dNow[d.k]}%;height:100%;background:${d.c};border-radius:3px"></div></div><div style="display:flex;justify-content:space-between;margin-top:2px"><span style="font-size:10px;color:var(--t3)">ต้นปี: ${startDims[i]}</span><span style="font-size:10px;color:${d.c};font-weight:600">ปัจจุบัน: ${dNow[d.k]}</span></div></div></div>`;}).join('');
+}
+
+// ════════════════════════════════════════
+// INTUITION REPORT
+// ════════════════════════════════════════
+function renderItReport() {
+  const {dims}=getTodayScores();const sc=dims.intuition;
+  document.getElementById('it-score').textContent=sc;
+  document.getElementById('it-bar').style.width=sc+'%';
+  const cv=[{l:'Fear/กลัว',ic:'😰',lv:sc<50?'medium':sc<70?'low':'none'},{l:'Urgency/เร่งรีบ',ic:'⏰',lv:'low'},{l:'Ego/อยากพิสูจน์',ic:'🎭',lv:'none'},{l:'Revenge/แค้น',ic:'⚡',lv:'none'},{l:'Over-excitement',ic:'🎉',lv:'none'}];
+  const cb={none:'var(--okb)',low:'var(--warnb)',medium:'rgba(255,138,138,.1)'};const cl2={none:'ไม่พบ',low:'ต่ำ',medium:'กลาง'};const ct={none:'#16806A',low:'#9A5E10',medium:'#A83030'};
+  document.getElementById('contam').innerHTML=cv.map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(79,140,255,.06)"><div style="display:flex;align-items:center;gap:6px"><span>${c.ic}</span><span style="font-size:12px">${c.l}</span></div><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;background:${cb[c.lv]};color:${ct[c.lv]}">${cl2[c.lv]}</span></div>`).join('');
+  document.getElementById('i-hist').innerHTML=[{d:'เมื่อคืน',s:'Body Signal',c:80,o:'✅'},{d:'3 วันก่อน',s:'Intuition Clarity',c:70,o:'✅'},{d:'5 วันก่อน',s:'Contamination check',c:60,o:'⚠️'},{d:'1 สัปดาห์',s:'Body Signal ตอนเช้า',c:90,o:'✅'}].map(i=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(79,140,255,.06)"><div><div style="font-size:12px;font-weight:500">${i.s}</div><div style="font-size:11px;color:var(--t2)">${i.d} · ${i.c}%</div></div><span>${i.o}</span></div>`).join('');
+}
+
+// ════════════════════════════════════════
+// EMOTION REPORT
+// ════════════════════════════════════════
+function renderEmReport() {
+  const {dims}=getTodayScores();const em=dims.emotional;
+  const riskOk=em>=60&&dims.cognitive>=55;
+  const banner=document.getElementById('em-risk-banner');
+  if(riskOk){banner.className='al al-ok';banner.innerHTML='<div class="al-icon">💚</div><div><div class="al-t" style="color:#16806A">Risk Level: LOW — ตัดสินใจได้</div><div class="al-b">Emotional Regulation ดี</div></div>';}
+  else{banner.className='al al-warn';banner.innerHTML='<div class="al-icon">⚠️</div><div><div class="al-t" style="color:#9A5E10">Risk Level: MEDIUM — ระวัง</div><div class="al-b">อารมณ์ยังไม่นิ่งพอ</div></div>';}
+  document.getElementById('em-g').innerHTML=[{ic:'🧘',v:dims.emotional,l:'Regulation',c:'#4F8CFF'},{ic:'⚡',v:dims.spiritual<60?7:4,l:'Intensity',c:'#FFB86B'},{ic:'🌊',v:Math.round(dims.emotional/10),l:'Mood',c:'#2DD4A8'},{ic:'🔄',v:em+'%',l:'Recovery',c:'#A855F7'}].map(i=>`<div style="text-align:center;padding:12px 8px;background:var(--bluel);border-radius:var(--r)"><div style="font-size:20px;margin-bottom:4px">${i.ic}</div><div style="font-size:18px;font-weight:700;color:${i.c}">${i.v}</div><div style="font-size:11px;color:var(--t2)">${i.l}</div></div>`).join('');
+  document.getElementById('safety').innerHTML=[{l:'อารมณ์คงที่',p:em>=60},{l:'Intensity ไม่สูง',p:true},{l:'ฟื้นตัวได้',p:em>=55},{l:'นอนเพียงพอ',p:dims.cognitive>=60},{l:'ไม่มีเหตุกระทบรุนแรง',p:true},{l:'BrainScore > 65',p:dims.cognitive+dims.emotional>130}].map(i=>`<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px"><span style="color:${i.p?'#2DD4A8':'#FF8A8A'};font-size:11px">${i.p?'✓':'✗'}</span><span style="font-size:11px;color:var(--t2)">${i.l}</span></div>`).join('');
+  const h30=getHistory(30);
+  makeLine('c-emst',h30.map(h=>h.label),h30.map(h=>h.score!=null?calcDimScores(STATE.checkins[`${h.date}-m`],STATE.checkins[`${h.date}-d`],STATE.checkins[`${h.date}-e`]).dims.emotional:null),'#63E6BE','rgba(99,230,190,.08)');
+  document.getElementById('reg').innerHTML=[{ic:'🌬️',t:'Box Breathing',d:'4-4-4-4 · 3 นาที',s:'+8'},{ic:'🚿',t:'Cold Shower',d:'3 นาที',s:'+12'},{ic:'📝',t:'Journaling',d:'10 นาที',s:'+6'},{ic:'🚶',t:'เดิน 20 นาที',d:'ลด Cortisol',s:'+9'}].map(t=>`<div style="background:var(--bluel);border-radius:var(--r);padding:12px"><div style="font-size:20px;margin-bottom:5px">${t.ic}</div><div style="font-size:12px;font-weight:600;margin-bottom:2px">${t.t}</div><div style="font-size:11px;color:var(--t2);margin-bottom:6px">${t.d}</div><span class="chip c-mi" style="font-size:10px">${t.s} Score</span></div>`).join('');
+}
+
+// ════════════════════════════════════════
+// SETTINGS
+// ════════════════════════════════════════
+function renderSettings() {
+  const {dims,brainscore}=getTodayScores();
+  document.getElementById('st-score').textContent=brainscore;
+  document.getElementById('st-detail').innerHTML=DIMS.map(d=>`${d.ic} ${d.l.split(' ')[0]}: ${dims[d.k]} × ${d.w} = ${(dims[d.k]*d.w).toFixed(1)}`).join('<br>')+`<br><strong style="color:var(--blue)">รวม = ${brainscore}</strong>`;
+  const eEl=document.getElementById('st-email');
+  if(eEl) eEl.textContent=CURRENT_UID?`☁️ Firebase UID: ${CURRENT_UID.slice(0,12)}...`:'📴 Local only';
+  document.getElementById('st-startdate').textContent=STATE.meta?.created||'—';
+  const ds=Object.keys(STATE.checkins).filter(k=>k.endsWith('-m')||k.endsWith('-e')).map(k=>k.slice(0,10));
+  document.getElementById('st-days').textContent=[...new Set(ds)].length+' วัน';
+  try{const sz=new Blob([JSON.stringify(STATE)]).size;document.getElementById('st-storage').textContent=CURRENT_UID?`☁️ Firebase · ${(sz/1024).toFixed(1)} KB cache`:`📴 Local only · ${(sz/1024).toFixed(1)} KB`;}catch(e){}
+  ['m','d','e'].forEach(k=>{const el=document.getElementById(`sw-${k}`);if(el)el.checked=STATE.settings[`notif-${k}`]!==false;});
+}
+
+// ════════════════════════════════════════
+// WIZARD SYSTEM
+// ════════════════════════════════════════
+const MSTEPS=[
+  {ic:'😴',t:'การนอนหลับ',cat:'cat-sleep',catl:'😴 การนอน',sub:'รากฐานของ BrainScore วันนี้',when:'ทันทีหลังตื่น · ก่อน 09:00',fields:[
+    {type:'sl',id:'ms1',key:'sleep_hrs',label:'นอนกี่ชั่วโมง',min:3,max:12,step:.5,val:7.5,unit:'ชม.',why:'นอน 7–9 ชม. = Cognitive +15 คะแนน'},
+    {type:'sl',id:'ms2',key:'sleep_quality',label:'คุณภาพการนอน',min:1,max:10,val:7,unit:'/10',why:'หลับลึก ฝันน้อย = คะแนนสูง'},
+  ]},
+  {ic:'🧠',t:'สมาธิและการตั้งเป้า',cat:'cat-mind',catl:'🧠 สมาธิ + งาน',sub:'วัดความพร้อมสมอง ตั้งโปรแกรมวัน',when:'หลังทำ Morning Routine',fields:[
+    {type:'sl',id:'ms3',key:'meditation_min',label:'นั่งสมาธิ (นาที)',min:0,max:120,step:5,val:0,unit:' นาที',why:'20+ นาที = Intuition +12% · Spiritual +20'},
+    {type:'tgl',id:'ms4',key:'gratitude',label:'ทำ Gratitude แล้วหรือยัง?',opts:['ยังไม่ได้','ทำแล้ว ✓'],vals:[0,1],def:0,why:'Gratitude = Spiritual +8'},
+    {type:'sl',id:'ms5',key:'alignment',label:'Alignment กับเป้าหมายชีวิต',min:1,max:10,val:7,unit:'/10',why:'Alignment สูง = Discipline +10'},
+    {type:'tx',id:'ms6',key:'goal_text',label:'งานหลักที่ต้องทำวันนี้',ph:'เช่น: ส่ง Proposal / Deep Work 4 ชม.',why:''},
+  ]},
+  {ic:'💫',t:'สภาพอารมณ์ตอนเช้า',cat:'cat-emotion',catl:'💫 อารมณ์',sub:'วัด Emotional baseline ของวัน',when:'ก่อนออกจากบ้าน',fields:[
+    {type:'mood',id:'ms7',key:'mood_idx',label:'อารมณ์ตอนเช้า',why:'ประเมิน Emotional baseline'},
+    {type:'sl',id:'ms8',key:'intensity',label:'ความเข้มข้นอารมณ์',min:1,max:10,val:5,unit:'/10',why:'Intensity สูง → ระวังตัดสินใจทางอารมณ์'},
+  ]},
+  {ic:'🔮',t:'Intuition ตอนเช้า',cat:'cat-intuition',catl:'🔮 Intuition',sub:'วัด Signal ก่อนเริ่มวัน',when:'ก่อนออกจากบ้าน',fields:[
+    {type:'bsig',id:'ms9',key:'body_signal',label:'Body Signal ตอนนี้',why:'Body Signal = Intuition Quality'},
+    {type:'sl',id:'ms10',key:'it_clarity',label:'ความชัดเจน Intuition',min:1,max:10,val:7,unit:'/10',why:'ต่ำกว่า 6 → รอ Clarity ก่อนตัดสินใจ'},
+  ]},
+];
+const DSTEPS=[
+  {ic:'⚡',t:'พลังงานและโฟกัส',cat:'cat-midday',catl:'⚡ พลังงาน',sub:'วัดระดับพลังงานกลางวัน',when:'ช่วงพักเที่ยง · 12:00–13:00',fields:[
+    {type:'sl',id:'ds1',key:'energy',label:'ระดับพลังงานตอนนี้',min:1,max:10,val:7,unit:'/10',why:'< 5 → เดิน 10 นาที หรือ Power nap'},
+    {type:'sl',id:'ds2',key:'focus_am',label:'โฟกัสช่วงเช้า (ที่ผ่านมา)',min:1,max:10,val:7,unit:'/10',why:'วัด Cognitive output ช่วงเช้า'},
+    {type:'tgl',id:'ds3',key:'ate_lunch',label:'ทานข้าวกลางวันแล้วหรือยัง?',opts:['ยังไม่ทาน','ทานแล้ว ✓'],vals:[0,1],def:1,why:'น้ำตาลในเลือดกระทบ Cognitive'},
+  ]},
+  {ic:'💫',t:'อารมณ์กลางวัน',cat:'cat-emotion',catl:'💫 อารมณ์',sub:'วัดสภาพอารมณ์ ก่อนทำงานต่อ',when:'ก่อนกลับไปทำงาน',fields:[
+    {type:'mood',id:'ds4',key:'mood_idx',label:'อารมณ์ตอนนี้',why:''},
+    {type:'sl',id:'ds5',key:'stress',label:'ความเครียดสะสม',min:1,max:10,val:4,unit:'/10',why:'> 7 → พักก่อน reset'},
+    {type:'tgl',id:'ds6',key:'ready_pm',label:'พร้อมทำงานบ่ายไหม?',opts:['ต้องพักก่อน','พอได้','พร้อมมาก ✓'],vals:[0,1,2],def:1,why:'ไม่พร้อม → Power nap 20 นาที'},
+  ]},
+];
+const ESTEPS=[
+  {ic:'💪',t:'พลังงานกายวันนี้',cat:'cat-body',catl:'💪 กายภาพ',sub:'สรุปกิจกรรมร่างกายทั้งวัน',when:'ตอนเย็น 19:00–20:00',fields:[
+    {type:'sl',id:'es1',key:'exercise_min',label:'ออกกำลังกาย (นาที)',min:0,max:180,step:5,val:0,unit:' นาที',why:'30+ นาที = Physical +18'},
+    {type:'sl',id:'es2',key:'cold_min',label:'Cold Exposure (นาที)',min:0,max:20,val:0,unit:' นาที',why:'3 นาที = Dopamine +250%'},
+    {type:'tgl',id:'es3',key:'hydration_idx',label:'ดื่มน้ำเพียงพอ?',opts:['น้อย <1L','พอดี 1–2L','ดีมาก >2L'],vals:[0,1,2],def:1,why:'Hydration กระทบ Cognitive 5–10%'},
+  ]},
+  {ic:'🧠',t:'งานและความคิด',cat:'cat-mind',catl:'🧠 งาน',sub:'วัดสมองทำงานได้ดีแค่ไหน',when:'หลังเลิกงาน',fields:[
+    {type:'sl',id:'es4',key:'deep_work_min',label:'Deep Work (นาที)',min:0,max:480,step:15,val:60,unit:' นาที',why:'2h+ = Cognitive +14'},
+    {type:'sl',id:'es5',key:'clarity',label:'ความคิดชัดเจนทั้งวัน',min:1,max:10,val:7,unit:'/10',why:'วัด Cognitive performance จริง'},
+    {type:'tgl',id:'es6',key:'key_task_idx',label:'ทำงานหลักเสร็จหรือยัง?',opts:['ยังไม่เสร็จ','บางส่วน','เสร็จสมบูรณ์ ✓'],vals:[0,1,2],def:1,why:'Key task = Discipline +15'},
+  ]},
+  {ic:'💫',t:'สภาพอารมณ์วันนี้',cat:'cat-emotion',catl:'💫 อารมณ์',sub:'สรุปสภาพจิตใจตลอดวัน',when:'ตอนเย็น ก่อนนอน',fields:[
+    {type:'mood',id:'es7',key:'mood_idx',label:'อารมณ์โดยรวมวันนี้',why:''},
+    {type:'sl',id:'es8',key:'intensity',label:'ความเข้มข้นอารมณ์สูงสุด',min:1,max:10,val:5,unit:'/10',why:'Intensity สูง = Emotion ลด'},
+    {type:'tgl',id:'es9',key:'recovery_idx',label:'ฟื้นตัวจากอารมณ์ลบได้ไหม?',opts:['ยังติดอยู่','ค่อยๆ ดีขึ้น','ฟื้นตัวเร็ว ✓'],vals:[0,1,2],def:1,why:'Recovery = Emotional Regulation'},
+    {type:'tgl',id:'es10',key:'screen_idx',label:'ใช้หน้าจอมากเกินไปไหม?',opts:['ไม่เลย','บางส่วน','ใช่ มากเกิน'],vals:[0,1,2],def:1,why:'Screen overuse = Spiritual -12'},
+  ]},
+  {ic:'🔮',t:'Intuition + Body Signal',cat:'cat-intuition',catl:'🔮 Intuition',sub:'วัด Intuition Quality ของวัน',when:'ก่อนนอน',fields:[
+    {type:'bsig',id:'es11',key:'body_signal',label:'Body Signal ตอนนี้',why:'วัด Intuition Quality'},
+    {type:'sl',id:'es12',key:'it_clarity',label:'ความชัดเจน Intuition',min:1,max:10,val:7,unit:'/10',why:'วัดความเชื่อมต่อ body-mind'},
+    {type:'tgl',id:'es13',key:'contamination_idx',label:'กลัว/เร่งรีบปนใน Intuition?',opts:['ไม่มี — ชัดเจน','มีบ้าง','มีมาก ระวัง!'],vals:[0,1,2],def:0,why:'Contamination = Intuition ผิดพลาด'},
+  ]},
+  {ic:'📊',t:'สรุปวัน',cat:'cat-summary',catl:'📊 สรุป',sub:'ประเมินภาพรวม บันทึก Insight',when:'ก่อนนอน',fields:[
+    {type:'sl',id:'es14',key:'routine_pct',label:'ทำ Routine ครบ %',min:0,max:100,step:5,val:70,unit:'%',why:'Routine % = Discipline โดยตรง'},
+    {type:'tx',id:'es15',key:'note',label:'Insight หรือความคิดวันนี้',ph:'เขียนอะไรก็ได้...',why:''},
+  ]},
+];
+
+const wizState = {m:{step:0,data:{}}, d:{step:0,data:{}}, e:{step:0,data:{}}};
+const stepsCfg = {m:{steps:MSTEPS,tbar:'m-tbar',prog:'m-prog',card:'m-card'},d:{steps:DSTEPS,tbar:'d-tbar',prog:'d-prog',card:'d-card'},e:{steps:ESTEPS,tbar:'e-tbar',prog:'e-prog',card:'e-card'}};
+
+function buildWiz(session) {
+  const {steps,tbar,prog,card}=stepsCfg[session];
+  const sn=wizState[session].step;
+  const step=steps[sn];
+  // Typebar
+  document.getElementById(tbar).innerHTML=steps.map((s,i)=>`<div class="wz-tp ${i===sn?'tp-on':''}"><span class="tpic">${s.ic}</span><span class="tplb">${s.catl.split(' ').slice(1).join(' ')}</span></div>`).join('');
+  // Progress
+  const pEl=document.getElementById(prog);
+  pEl.innerHTML='';
+  steps.forEach((s,i)=>{
+    const d=document.createElement('div');d.className='wp-s';
+    d.innerHTML=`<div class="wp-d ${i<sn?'done':i===sn?'act':''}">${i<sn?'✓':i+1}</div><div class="wp-l ${i===sn?'act':''}">${s.ic}</div>`;
+    pEl.appendChild(d);
+    if(i<steps.length-1){const l=document.createElement('div');l.className='wp-line';l.style.background=i<sn?'var(--mint)':'var(--bd)';pEl.appendChild(l);}
+  });
+  // Card
+  const isLast=sn===steps.length-1;
+  document.getElementById(card).innerHTML=`
+    <div style="margin-bottom:16px">
+      <span class="step-cat ${step.cat}">${step.catl}</span>
+      <div class="wz-icon">${step.ic}</div>
+      <div class="wz-title">${step.t}</div>
+      <div class="wz-sub">${step.sub}</div>
+      <div class="wz-when">⏰ ${step.when}</div>
+    </div>
+    <div style="height:1px;background:var(--bd);margin-bottom:16px"></div>
+    ${step.fields.map(f=>buildField(f,wizState[session].data)).join('')}
+    <div class="wz-nav">
+      <button class="btn bg2 wz-btn-back" data-session="${session}" ${sn===0?'style="opacity:.3;pointer-events:none"':''}>← ย้อนกลับ</button>
+      <div class="wz-cnt">ขั้นตอน ${sn+1} / ${steps.length}</div>
+      ${isLast?`<button class="btn bp wz-btn-save" data-session="${session}">✅ บันทึก & คำนวณ</button>`:`<button class="btn bp wz-btn-next" data-session="${session}">ถัดไป →</button>`}
+    </div>`;
+  // Sliders live update
+  step.fields.filter(f=>f.type==='sl').forEach(f=>{
+    const sl=document.getElementById(f.id),vb=document.getElementById(f.id+'-v');
+    if(sl&&vb) sl.oninput=()=>{vb.textContent=sl.value+(f.unit||'');wizState[session].data[f.key]=+sl.value;};
+    if(sl) wizState[session].data[f.key]=+(wizState[session].data[f.key]??f.val);
+  });
+}
+
+function buildField(f, saved) {
+  const sv=saved[f.key];
+  let inner='';
+  if(f.type==='sl'){const cv=sv??f.val;inner=`<div class="sl-row"><div class="sl-val" id="${f.id}-v">${cv}${f.unit||''}</div><input type="range" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step||1}" value="${cv}"></div>`;}
+  else if(f.type==='tgl'){const ci=sv??f.def??0;inner=`<div class="tgl-g" id="${f.id}-g">${f.opts.map((o,i)=>`<button class="tgl wz-tgl ${i===ci?'on':''}" data-key="${f.key}" data-val="${f.vals?.[i]??i}">${o}</button>`).join('')}</div>`;}
+  else if(f.type==='mood'){const ci=sv??3;const moods=[['😞','แย่'],['😟','ไม่ดี'],['😐','กลาง'],['🙂','ดี'],['😊','ดีมาก'],['😄','ยอดเยี่ยม'],['🤩','สุดยอด']];inner=`<div class="mood-r" id="${f.id}-g">${moods.map((m,i)=>`<button class="mb wz-mood ${i===ci?'on':''}" data-key="${f.key}" data-idx="${i}">${m[0]}<span>${m[1]}</span></button>`).join('')}</div>`;}
+  else if(f.type==='bsig'){const ci=sv??1;const sigs=[{ic:'😰',l:'ตึงเครียด',d:'กลัว/ลังเล'},{ic:'😐',l:'เป็นกลาง',d:'ไม่แน่ใจ'},{ic:'🧘',l:'นิ่งชัด',d:'พร้อม ✓'}];inner=`<div class="bsig-g" id="${f.id}-g">${sigs.map((s,i)=>`<div class="bsig wz-bsig ${i===ci?'on':''}" data-key="${f.key}" data-idx="${i}"><div class="bsig-ic">${s.ic}</div><div class="bsig-l">${s.l}</div><div class="bsig-d">${s.d}</div></div>`).join('')}</div>`;}
+  else if(f.type==='tx'){inner=`<textarea class="ta" id="${f.id}" data-key="${f.key}">${sv||''}</textarea>`;}
+  return `<div class="wf"><label>${f.label}</label>${inner}${f.why?`<div class="why">💡 ${f.why}</div>`:''}</div>`;
+}
+
+function saveSliders(session) {
+  const {steps}=stepsCfg[session];const step=steps[wizState[session].step];
+  step.fields.filter(f=>f.type==='sl').forEach(f=>{const el=document.getElementById(f.id);if(el)wizState[session].data[f.key]=+el.value;});
+  step.fields.filter(f=>f.type==='tx').forEach(f=>{const el=document.getElementById(f.id);if(el)wizState[session].data[f.key]=el.value;});
+}
+
+async function wizSave(session) {
+  saveSliders(session);
+  const data={...wizState[session].data, saved_at:new Date().toISOString()};
+  await saveCheckin(todayKey(session), data);
+  refreshBadges();
+  const {brainscore}=getTodayScores();
+  const msgs={m:'เที่ยงนี้กลับมาทำ Midday Check-in ☀️',d:'เย็นนี้กลับมาทำ Evening Check-in 🌙',e:'ดู Daily Insight สำหรับผลวิเคราะห์เชิงลึก'};
+  const nextPage={m:'cmd',d:'cmd',e:'insight'}[session];
+  const nextLabel={m:'ดู Command Center →',d:'ดู Command Center →',e:'ดู Daily Insight →'}[session];
+  document.getElementById(stepsCfg[session].card).innerHTML=`<div style="text-align:center;padding:32px 0">
+    <div style="font-size:42px;margin-bottom:12px">${session==='e'?'🎯':'✅'}</div>
+    ${session==='e'?`<div style="font-size:22px;font-weight:700;margin-bottom:5px">BrainScore: ${brainscore}</div><div style="font-size:13px;color:var(--t2);margin-bottom:5px">${getScoreZone(brainscore).label}</div>`:'<div style="font-size:17px;font-weight:600;margin-bottom:5px">บันทึกสำเร็จ! ✓</div>'}
+    <div style="font-size:12.5px;color:var(--t2);margin-bottom:20px">${msgs[session]}</div>
+    <button class="btn bp nav-to" data-page="${nextPage}">${nextLabel}</button>
+  </div>`;
+  // Reset wizard for next use
+  wizState[session].step=0; wizState[session].data={};
+}
+
+// ════════════════════════════════════════
+// TOAST
+// ════════════════════════════════════════
+function showToast(msg, dur=3000) {
+  let t=document.getElementById('brainos-toast');
+  if(!t){t=document.createElement('div');t.id='brainos-toast';t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#24324A;color:#fff;padding:10px 20px;border-radius:12px;font-size:13px;font-weight:500;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.2);transition:opacity .3s;pointer-events:none;white-space:nowrap';document.body.appendChild(t);}
+  t.textContent=msg;t.style.opacity='1';clearTimeout(t._t);t._t=setTimeout(()=>{t.style.opacity='0';},dur);
+}
+
+function refreshBadges() {
+  ['m','d','e'].forEach(s=>{
+    const b=document.getElementById('badge-'+s);if(!b)return;
+    if(STATE.checkins[todayKey(s)]){b.className='sb-ci-badge b-done';b.textContent='✓ แล้ว';}
+    else{b.className='sb-ci-badge b-pend';b.textContent='รอทำ';}
+  });
+  updateNavBadge();
+}
+
+function updateSyncBadge(status) {
+  const badge = document.getElementById('sync-badge'); if(!badge) return;
+  const s = {
+    syncing: {bg:'rgba(79,140,255,.1)', color:'#4F8CFF', text:'⏳ กำลังซิงค์'},
+    synced:  {bg:'rgba(45,212,168,.1)', color:'#16806A', text:'☁️ ซิงค์แล้ว'},
+    offline: {bg:'rgba(255,184,107,.12)',color:'#9A5E10', text:'📴 Offline'},
+  }[status] || {};
+  badge.style.cssText = `display:inline-flex;font-size:11px;font-weight:500;padding:3px 9px;border-radius:10px;margin-right:4px;background:${s.bg};color:${s.color}`;
+  badge.textContent = s.text;
+}
+
+// ── No Auth (localStorage only) ──
+function authSignOut() { /* not used */ }
+
+// Export / Clear
+function exportData() {
+  const blob=new Blob([JSON.stringify(STATE,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download=`brainos_${dateKey()}.json`;a.click();URL.revokeObjectURL(url);
+}
+async function confirmClear() {
+  const code=prompt('รหัสยืนยันการลบข้อมูล:');
+  if(code==='1231'){
+    if(CURRENT_UID){
+      showToast('🗑️ กำลังลบข้อมูล...');
+      try{
+        const snap=await window._fb.getDocs(window._fb.checkinsCol(CURRENT_UID));
+        const batch=window._fb.writeBatch(window._fbDb);
+        snap.forEach(d=>batch.delete(d.ref));
+        await batch.commit();
+        await window._fb.deleteDoc(window._fb.settingsDoc(CURRENT_UID));
+      }catch(e){console.warn('Delete error:',e);}
+    }
+    STATE=freshState();localStorage.removeItem('brainos_v5');
+    showToast('✅ ล้างข้อมูลสำเร็จ');setTimeout(()=>location.reload(),1200);
+  }else if(code!==null)alert('รหัสไม่ถูกต้อง');
+}
+
+// ════════════════════════════════════════
+// EVENT DELEGATION — replaces all onclick=
+// ════════════════════════════════════════
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-page]');
+  if(t) { go(t.dataset.page); return; }
+
+  // Wizard navigation
+  const back=e.target.closest('.wz-btn-back');
+  if(back){const s=back.dataset.session;saveSliders(s);wizState[s].step=Math.max(0,wizState[s].step-1);buildWiz(s);return;}
+  const next=e.target.closest('.wz-btn-next');
+  if(next){const s=next.dataset.session;saveSliders(s);wizState[s].step++;buildWiz(s);return;}
+  const save=e.target.closest('.wz-btn-save');
+  if(save){wizSave(save.dataset.session);return;}
+
+  // Wizard toggles
+  const tgl=e.target.closest('.wz-tgl');
+  if(tgl){const s=activeWizSession();if(s){const g=tgl.closest('.tgl-g');g.querySelectorAll('.tgl').forEach(b=>b.classList.remove('on'));tgl.classList.add('on');wizState[s].data[tgl.dataset.key]=+tgl.dataset.val;}return;}
+
+  // Mood picker
+  const mood=e.target.closest('.wz-mood');
+  if(mood){const s=activeWizSession();if(s){const g=mood.closest('.mood-r');g.querySelectorAll('.mb').forEach(b=>b.classList.remove('on'));mood.classList.add('on');wizState[s].data[mood.dataset.key]=+mood.dataset.idx;}return;}
+
+  // Body signal
+  const bsig=e.target.closest('.wz-bsig');
+  if(bsig){const s=activeWizSession();if(s){const g=bsig.closest('.bsig-g');g.querySelectorAll('.bsig').forEach(b=>b.classList.remove('on'));bsig.classList.add('on');wizState[s].data[bsig.dataset.key]=+bsig.dataset.idx;}return;}
+
+  // Settings toggles
+  const sw=e.target.closest('.sw input');
+  if(sw){saveSetting(sw.id.replace('sw-','notif-'),sw.checked);return;}
+
+  // Buttons
+  if(e.target.id==='btn-checkin') go('ci-m');
+  if(e.target.id==='btn-prevmo'){curMo--;if(curMo<1){curMo=12;curYr--;}renderMo();}
+  if(e.target.id==='btn-nextmo'){curMo++;if(curMo>12){curMo=1;curYr++;}renderMo();}
+  if(e.target.id==='btn-export') exportData();
+  if(e.target.id==='btn-clear') confirmClear();
+  if(e.target.id==='btn-signout') authSignOut();
+});
+
+function activeWizSession() {
+  if(document.getElementById('p-ci-m')?.classList.contains('on')) return 'm';
+  if(document.getElementById('p-ci-d')?.classList.contains('on')) return 'd';
+  if(document.getElementById('p-ci-e')?.classList.contains('on')) return 'e';
+  return null;
+}
+
+// ════════════════════════════════════════
+// INIT — Boot instantly, sync Firebase in background
+// ════════════════════════════════════════
+// ════════════════════════════════════════
+// BOTTOM NAV — smart contextual mobile nav
+// ════════════════════════════════════════
+
+// ── Session logic: which check-in is due now? ──
+function currentSession() {
+  const hr = new Date().getHours();
+  if (hr >= 5  && hr < 11) return 'm';  // เช้า  05:00–10:59
+  if (hr >= 11 && hr < 15) return 'd';  // เที่ยง 11:00–14:59
+  if (hr >= 15 && hr < 23) return 'e';  // เย็น  15:00–22:59
+  return 'm'; // midnight → เตรียมวันใหม่
+}
+
+// ── Contextual check-in button state ──
+// Returns what the center button should show right now
+function getNavCIState() {
+  const s = currentSession();
+  const done = !!STATE.checkins[todayKey(s)];
+  const allDone = ['m','d','e'].every(k => !!STATE.checkins[todayKey(k)]);
+
+  const icons  = {m:'🌅', d:'☀️', e:'🌙'};
+  const labels = {m:'เช้า', d:'เที่ยง', e:'เย็น'};
+
+  if (allDone) return { icon:'✅', label:'เสร็จแล้ว', page: null, done: true };
+  if (done)    return { icon: icons[s]+'✓', label:'ถัดไป', page: `ci-${s === 'm' ? 'd' : s === 'd' ? 'e' : 'm'}`, done: false };
+  return        { icon: icons[s], label: labels[s], page: `ci-${s}`, done: false };
+}
+
+// ── BrainScore zone color for nav ring ──
+function scoreToNavColor(score) {
+  if (score >= 75) return 'var(--ok)';
+  if (score >= 60) return 'var(--blue)';
+  if (score >= 45) return 'var(--warn)';
+  return 'var(--danger)';
+}
+
+function initBottomNav() {
+  const drawer  = document.getElementById('bnav-drawer');
+  const overlay = document.getElementById('bnav-overlay');
+  const moreBtn = document.getElementById('bnav-more-btn');
+
+  function openDrawer() {
+    drawer?.classList.add('open');
+    overlay?.classList.add('open');
+  }
+  function closeDrawer() {
+    drawer?.classList.remove('open');
+    overlay?.classList.remove('open');
+  }
+
+  if (moreBtn) moreBtn.addEventListener('click', openDrawer);
+  if (overlay) overlay.addEventListener('click', e => {
+    // Only close if tap is on overlay itself, not inside drawer
+    if(e.target === overlay) closeDrawer();
+  });
+
+  // Swipe down to close drawer
+  let startY = 0;
+  drawer?.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, {passive:true});
+  drawer?.addEventListener('touchend',   e => { if(e.changedTouches[0].clientY - startY > 60) closeDrawer(); }, {passive:true});
+
+  // Smart check-in button tap
+  const ciBtn = document.getElementById('bnav-ci');
+  if (ciBtn) {
+    ciBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const state = getNavCIState();
+      if (state.page) go(state.page);
+    });
+  }
+}
+
+// go() bottom nav sync is handled inside the original go() function
+
+// ── updateNavBadge: smart contextual update ──
+function updateNavBadge() {
+  const ciBtn = document.getElementById('bnav-ci');
+  const badge = document.getElementById('bnav-badge');
+  const scoreEl = document.getElementById('bnav-score');
+  if (!ciBtn) return;
+
+  // 1. Check-in button: context-aware
+  const state = getNavCIState();
+  ciBtn.querySelector('.bi').textContent = state.icon;
+  ciBtn.querySelector('.bl').textContent = state.label;
+  if (badge) badge.classList.toggle('show', !state.done);
+
+  // 2. Score badge on Overview button
+  const { brainscore } = getTodayScores();
+  if (scoreEl) {
+    scoreEl.textContent = brainscore;
+    scoreEl.style.background = scoreToNavColor(brainscore);
+    scoreEl.style.display = STATE.checkins[todayKey('m')] ? 'block' : 'none';
+  }
+
+  // 3. Drawer check-in items: show ✓ if done
+  ['m','d','e'].forEach(s => {
+    const item = document.querySelector(`.bnav-drawer-item[data-page="ci-${s}"]`);
+    if (!item) return;
+    const done = !!STATE.checkins[todayKey(s)];
+    const icons = {m:'🌅',d:'☀️',e:'🌙'};
+    const labels = {m:'เช้า',d:'เที่ยง',e:'เย็น'};
+    item.querySelector('.di').textContent = done ? icons[s]+'✓' : icons[s];
+    item.querySelector('.dl').textContent = labels[s] + (done ? ' ✓' : '');
+    item.style.opacity = done ? '0.6' : '1';
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // 1. Boot from local cache immediately — app is usable right away
+  _loadCache();
+  document.getElementById('tb-s').textContent = new Date().toLocaleDateString('th-TH',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const hr = new Date().getHours();
+  document.getElementById('cmd-greet').textContent = hr<12?'สวัสดีตอนเช้า 🌅':hr<17?'สวัสดีตอนบ่าย ☀️':'สวัสดีตอนเย็น 🌙';
+  refreshBadges();
+  buildWiz('m'); buildWiz('d'); buildWiz('e');
+  renderCmd();
+  initBottomNav();
+  updateNavBadge();
+
+  // 2. Firebase anonymous sign-in — automatic, no popup, no login needed
+  // Wait for Firebase module to be ready, then start auth
+  function startFirebaseAuth() {
+    if (!window._fb) return; // not ready yet
+    window._fb.onAuthChange(async user => {
+      if (user) {
+        CURRENT_UID = user.uid;
+        fauth.currentUser = user; // keep reference
+        updateSyncBadge('syncing');
+        const ok = await loadFromFirestore(CURRENT_UID);
+        subscribeToday(CURRENT_UID);
+        if (ok) {
+          updateSyncBadge('synced');
+          refreshBadges();
+          renderCmd();
+        } else {
+          updateSyncBadge('offline');
+        }
+      } else {
+        // First visit — auto anonymous sign-in, no popup
+        try {
+          await window._fb.signInAnon();
+        } catch(e) {
+          console.warn('Anonymous sign-in failed:', e);
+          updateSyncBadge('offline');
+        }
+      }
+    });
+  }
+
+  // Firebase module fires 'fb-ready' event when loaded
+  if (window._fbReady) {
+    startFirebaseAuth(); // already ready (cached)
+  } else {
+    document.addEventListener('fb-ready', startFirebaseAuth, { once: true });
+    // Fallback: if module takes >4s, continue offline
+    setTimeout(() => { if (!CURRENT_UID) updateSyncBadge('offline'); }, 4000);
+  }
+});
+</script>
+<!-- ══ BOTTOM NAV (mobile) ══ -->
+<div class="bnav-overlay" id="bnav-overlay"></div>
+<nav class="bnav">
+  <div class="bnav-items">
+    <!-- Overview + score badge -->
+    <button class="bnav-btn on" data-page="cmd">
+      <span class="bi" style="position:relative">⚡
+        <span id="bnav-score" style="display:none;position:absolute;top:-6px;right:-10px;font-size:8px;font-weight:700;color:#fff;padding:1px 4px;border-radius:8px;line-height:1.4"></span>
+      </span>
+      <span class="bl">Overview</span>
+    </button>
+    <!-- Smart check-in: changes by time + status -->
+    <button class="bnav-btn" id="bnav-ci" style="position:relative">
+      <span class="bi">🌅</span>
+      <span class="bl">เช็คอิน</span>
+      <span class="bnav-badge show" id="bnav-badge">!</span>
+    </button>
+    <!-- Insight -->
+    <button class="bnav-btn" data-page="insight">
+      <span class="bi">💡</span>
+      <span class="bl">Insight</span>
+    </button>
+    <!-- More drawer -->
+    <button class="bnav-btn" id="bnav-more-btn">
+      <span class="bi">☰</span>
+      <span class="bl">เพิ่มเติม</span>
+    </button>
+  </div>
+</nav>
+
+<!-- More drawer — slides up from bottom -->
+<div class="bnav-drawer" id="bnav-drawer">
+  <div class="bnav-drawer-handle"></div>
+  <!-- Check-in section -->
+  <div style="padding:0 16px 6px;font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.8px;text-transform:uppercase">เช็คอิน</div>
+  <div class="bnav-drawer-grid" style="padding:0 8px 4px">
+    <button class="bnav-drawer-item" data-page="ci-m"><span class="di">🌅</span><span class="dl">เช้า</span></button>
+    <button class="bnav-drawer-item" data-page="ci-d"><span class="di">☀️</span><span class="dl">เที่ยง</span></button>
+    <button class="bnav-drawer-item" data-page="ci-e"><span class="di">🌙</span><span class="dl">เย็น</span></button>
+    <div></div>
+  </div>
+  <!-- Analytics section -->
+  <div style="padding:4px 16px 6px;font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.8px;text-transform:uppercase">วิเคราะห์</div>
+  <div class="bnav-drawer-grid" style="padding:0 8px 4px">
+    <button class="bnav-drawer-item" data-page="weekly"><span class="di">📅</span><span class="dl">Weekly</span></button>
+    <button class="bnav-drawer-item" data-page="monthly"><span class="di">📆</span><span class="dl">Monthly</span></button>
+    <button class="bnav-drawer-item" data-page="yearly"><span class="di">🗓</span><span class="dl">Yearly</span></button>
+    <button class="bnav-drawer-item" data-page="settings"><span class="di">⚙️</span><span class="dl">Settings</span></button>
+  </div>
+  <!-- Deep analysis -->
+  <div style="padding:4px 16px 6px;font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.8px;text-transform:uppercase">เชิงลึก</div>
+  <div class="bnav-drawer-grid" style="padding:0 8px 10px">
+    <button class="bnav-drawer-item" data-page="intuition"><span class="di">🔮</span><span class="dl">Intuition</span></button>
+    <button class="bnav-drawer-item" data-page="emotion"><span class="di">💫</span><span class="dl">Emotion</span></button>
+    <div></div><div></div>
+  </div>
+</div>
+</html>
